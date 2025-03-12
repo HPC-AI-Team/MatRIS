@@ -12,7 +12,7 @@ The code is currently under preparation and will be open-sourced soon.
 
 **Training time**: 78 GPU-days on A800 
 
-**Parameters**: 5,825,620
+**Model parameters**: 5,825,620
 
 ## Matbench-Discovery Benchmark (MatRIS-v0.5.0-MPtrj)
 ```
