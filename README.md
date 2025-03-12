@@ -12,7 +12,7 @@ The code is currently under preparation and will be open-sourced soon.
 
 **loss prefactor**: e:f:s:m = 5:5:0.1:0.1
 
-## Matbench-Discovery Benchmark (MatRIS-v0.5.0-MPtrj: )
+## Matbench-Discovery Benchmark (MatRIS-v0.5.0-MPtrj)
 ```
                Full Test      Unique Prototypes      10k Most Stable
 F1              0.798               0.809                 0.984
