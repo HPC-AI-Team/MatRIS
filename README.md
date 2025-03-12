@@ -14,7 +14,7 @@ The code is currently under preparation and will be open-sourced soon.
 
 **Model parameters**: 5,825,620
 
-## Matbench-Discovery Benchmark (MatRIS-v0.5.0-MPtrj)
+### Matbench-Discovery Benchmark
 ```
                Full Test       Unique Prototypes      10k Most Stable
 F1               0.798               0.809                 0.984
@@ -35,4 +35,4 @@ RMSE             0.080               0.082                 0.057
 R2               0.801               0.804                 0.926
 ```
 
-##  Heat-Conductivity Benchmark (K_SRME: 0.865)
+###  Heat-Conductivity Benchmark (K_SRME: 0.865)
