@@ -8,9 +8,11 @@ The code is currently under preparation and will be open-sourced soon.
 |:--------:|:--------:|:--------:|:--------:|
 |    6.8   |   20.9   |   194.3  |   23.7   |
 
+**loss prefactor**: e:f:s:m = 5:5:0.1:0.1
+
 **Training time**: 78 GPU-days on A800 
 
-**loss prefactor**: e:f:s:m = 5:5:0.1:0.1
+**Parameters**: 5,825,620
 
 ## Matbench-Discovery Benchmark (MatRIS-v0.5.0-MPtrj)
 ```
