@@ -14,7 +14,7 @@ The code is currently under preparation and will be open-sourced soon.
 
 ## Matbench-Discovery Benchmark (MatRIS-v0.5.0-MPtrj)
 ```
-               Full Test       Unique Prototypes       10k Most Stable
+               Full Test       Unique Prototypes      10k Most Stable
 F1               0.798               0.809                 0.984
 DAF              4.457               5.049                 6.338
 Precision        0.765               0.772                 0.969
