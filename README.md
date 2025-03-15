@@ -38,4 +38,4 @@ R2               0.800               0.803                 0.926
 ###  Heat-Conductivity Benchmark (K_SRME: 0.861)
 
 ## MatRIS-v1.0.0-MPtrj
-This model will be released soon.
+This version will be released soon.
