@@ -4,7 +4,7 @@ The code is currently under preparation and will be open-sourced soon.
 
 ## MatRIS-v0.5.0-MPtrj
 ### MPtrj training set MAE
-| Energy(mev/atom) | Force(mev/A) | Stress(GPA) | Magmom(muB)|
+| Energy(mev/atom) | Force(mev/A) | Stress(GPa) | Magmom(muB)|
 |:--------:|:--------:|:--------:|:--------:|
 |    6.8   |   20.9   |   194.3  |   23.7   |
 
