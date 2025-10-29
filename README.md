@@ -124,3 +124,6 @@ md = MolecularDynamics(
 )
 md.run(1000)
 ```
+
+### LICENSE
+MatRIS is licensed under the BSD-3-Clause License. Please see the [LICENSE](LICENSE) file for details.
