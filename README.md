@@ -21,10 +21,8 @@ We offer three pretrained models:
      - Model key: matris_10m_omat
    - **MatRIS-10M-OAM**: A model trained on the OMat24 dataset, and finetuned on sAlex+Mptrj dataset.
      - Model key: matris_10m_oam
-     - Matbench-Discovery(unique): **F1=0.921, kSRME=0.218, RMSD=0.0601**
    - **MatRIS-10M-MP**: A model trained on the MPTrj dataset.
      - Model key: matris_10m_mp
-     - Matbench-Discovery(unique): **F1=0.847, kSRME=0.489, RMSD=0.0717**
 
 
 
