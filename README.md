@@ -1,41 +1,126 @@
 # MatRIS
+
 This repository contains the official PyTorch implementation of **MatRIS** (a foundation model for **Mat**erials **R**epresentation and **I**nteraction **S**imulation). 
-The code is currently under preparation and will be open-sourced soon.
 
-## MatRIS-v0.5.0-MPtrj
-### MPtrj training set MAE
-| Energy(mev/atom) | Force(mev/A) | Stress(GPa) | Magmom(muB)|
-|:--------:|:--------:|:--------:|:--------:|
-|    6.8   |   20.9   |   194.3  |   23.7   |
+### Requirements
 
-**Loss prefactor**: e:f:s:m = 5:5:0.1:0.1
-
-**Training time**: 78 GPU-days on A800 
-
-**Model parameters**: 5,825,620
-
-### Matbench-Discovery Benchmark
 ```
-               Full Test       Unique Prototypes      10k Most Stable
-F1               0.798               0.809                 0.984
-DAF              4.456               5.049                 6.338
-Precision        0.765               0.772                 0.969
-Recall           0.834               0.850                 1.000
-Accuracy         0.927               0.938                 0.969
-TPR              0.834               0.850                 1.000
-FPR              0.053               0.046                 1.000
-TNR              0.947               0.954                 0.000
-FNR              0.166               0.150                 0.000
-TP           36755.000           28379.000              9693.000
-FP           11312.000            8391.000               307.000
-TN          201559.000          173723.000                 0.000
-FN            7337.000            4995.000                 0.000
-MAE              0.035               0.037                 0.026
-RMSE             0.080               0.082                 0.057
-R2               0.800               0.803                 0.926
+ase >= 3.23.0
+numpy >= 2.0.0
+pymatgen > 2024.9.10
+torch > 2.6.0
 ```
 
-###  Heat-Conductivity Benchmark (K_SRME: 0.861)
 
-## MatRIS-v1.0.0-MPtrj
-This version will be released soon.
+
+### Pretrained Models
+
+We offer three pretrained models:
+
+   - **MatRIS-10M-Omat**: A model trained on the OMat24 dataset.
+     - Model key: matris_10m_omat
+   - **MatRIS-10M-OAM**: A model trained on the OMat24 dataset, and finetuned on sAlex+Mptrj dataset.
+     - Model key: matris_10m_oam
+     - Matbench-Discovery(unique): **F1=0.921, kSRME=0.218, RMSD=0.0601**
+   - **MatRIS-10M-MP**: A model trained on the MPTrj dataset.
+     - Model key: matris_10m_mp
+     - Matbench-Discovery(unique): **F1=0.847, kSRME=0.489, RMSD=0.0717**
+
+
+
+###  Usage
+
+There are some examples how to use MatRIS, including calculator, geometry optimization and molecular dynamics.
+
+### ASE Calculator
+
+```python
+import ase
+from ase.build import bulk
+import torch
+from matris.applications.base import MatRISCalculator
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+calc = MatRISCalculator(
+    model='matris_10m_oam', # matris_10m_oam, matris_10m_mp
+    task='efsm', # Can be e/ef/efs/efsm 
+    device=device # cpu or cuda
+)
+
+cu = bulk('Cu', a=5.43, cubic=True)
+cu.calc = calc
+
+energy = cu.get_potential_energy()   # total energy(eV)
+forces = cu.get_forces()             # forces (eV/A)          
+stress = cu.get_stress()             # stress (eV/A^3)  
+magmoms = cu.get_magnetic_moments()  # magmom (muB)
+```
+
+
+### Structure Optimiation
+
+```python
+import ase
+from ase.build import bulk
+import torch
+
+from matris.applications.relax import StructOptimizer
+
+model_name = "matris_10m_oam"
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+matris_opt = StructOptimizer(
+    model = model_name, 
+    task = "efsm",
+    optimizer = "FIRE", # FIRE, BFGS ...
+    device=device
+)
+
+atom = bulk('Cu', a=5.43, cubic=True)
+max_steps = 500
+fmax = 0.05
+opt_result = matris_opt.relax(
+        atoms=atom, # pymatgen.Structure or ase.Atoms
+        verbose=True,
+        steps=max_steps,
+        fmax=fmax,
+        relax_cell=max_steps > 0,
+        ase_filter="FrechetCellFilter",
+    )
+
+trajectory = opt_result['trajectory']
+energy = trajectory.energies[-1] # final energy
+force = trajectory.forces[-1]
+stress = trajectory.stresses[-1]
+magmom = trajectory.magmoms[-1]
+
+final_structure = opt_result['final_structure'] # pymatgen.core.structure.Structure
+
+```
+
+
+### Molecular Dynamics 
+
+```python
+import ase
+from ase.build import bulk
+import torch
+from matris.applications import MolecularDynamics
+# Molecular D
+#atoms = Structure.from_file(f"xxx.cif")
+atom = bulk('Cu', a=5.43, cubic=True)
+
+md = MolecularDynamics(
+    atoms=atom, # pymatgen.Structure or ase.Atoms
+    model="matris_10m_oam",
+    ensemble="nvt", # nvt, nve ...
+    temperature=300,  # in K
+    timestep=1,  # in femto-seconds
+    trajectory="md_out.traj",
+    logfile="md_out.log",
+    loginterval=100,
+    task="efsm",
+    device="cuda",
+)
+md.run(1000)
+```
