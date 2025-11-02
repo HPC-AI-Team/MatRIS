@@ -55,7 +55,7 @@ magmoms = cu.get_magnetic_moments()  # magmom (muB)
 ```
 
 
-### Structure Optimiation
+### Structure Optimization
 
 ```python
 import ase
