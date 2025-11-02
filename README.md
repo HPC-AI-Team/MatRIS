@@ -1,6 +1,6 @@
 # MatRIS
 
-This repository contains the official PyTorch implementation of **MatRIS** (a foundation model for **Mat**erials **R**epresentation and **I**nteraction **S**imulation). 
+This repository contains the official PyTorch implementation of **MatRIS** (a foundation model for **Mat**erials **R**epresentation and **I**nteraction **S**imulation). Please note that the current version is V0.9
 
 ### Requirements
 
