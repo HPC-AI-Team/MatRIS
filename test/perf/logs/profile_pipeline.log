@@ -1,0 +1,132 @@
+Profile: FP32 pipeline breakdown
+Model: matris_10m_oam
+Structure: ASE bulk Cu, a=5.43, cubic=True
+Device: cuda
+CUDA_VISIBLE_DEVICES: 0
+Warmup runs: 3
+Measure runs: 10
+Note: efs profiles force/stress on separate fresh graphs, so process_graphs/embedding/interaction/readout are doubled for diagnostic splitting and do not sum to exact end-to-end efs.
+GPU: NVIDIA A800-SXM4-80GB
+CUDA in torch: 12.4
+MatRIS initialized with 10443505 parameters
+Loading matris_10m_oam successfully, running on cuda.
+
+=== Profile task=e ===
+run 01/10: atoms->structure=0.123 ms, graph=0.701 ms, to(device)=0.159 ms, process_graphs=1.335 ms, embedding=1.334 ms, interaction=41.396 ms, energy_head=0.435 ms, force_grad=0.000 ms, stress_grad=0.000 ms, cpu_output=0.043 ms
+run 02/10: atoms->structure=0.117 ms, graph=0.694 ms, to(device)=0.158 ms, process_graphs=1.328 ms, embedding=1.342 ms, interaction=41.393 ms, energy_head=0.440 ms, force_grad=0.000 ms, stress_grad=0.000 ms, cpu_output=0.048 ms
+run 03/10: atoms->structure=0.118 ms, graph=0.697 ms, to(device)=0.155 ms, process_graphs=1.318 ms, embedding=1.322 ms, interaction=41.545 ms, energy_head=0.436 ms, force_grad=0.000 ms, stress_grad=0.000 ms, cpu_output=0.042 ms
+run 04/10: atoms->structure=0.114 ms, graph=0.694 ms, to(device)=0.157 ms, process_graphs=1.327 ms, embedding=1.338 ms, interaction=41.493 ms, energy_head=0.430 ms, force_grad=0.000 ms, stress_grad=0.000 ms, cpu_output=0.047 ms
+run 05/10: atoms->structure=0.120 ms, graph=0.703 ms, to(device)=0.157 ms, process_graphs=1.339 ms, embedding=1.344 ms, interaction=41.468 ms, energy_head=0.442 ms, force_grad=0.000 ms, stress_grad=0.000 ms, cpu_output=0.049 ms
+run 06/10: atoms->structure=0.113 ms, graph=0.698 ms, to(device)=0.155 ms, process_graphs=1.325 ms, embedding=1.328 ms, interaction=41.448 ms, energy_head=0.437 ms, force_grad=0.000 ms, stress_grad=0.000 ms, cpu_output=0.042 ms
+run 07/10: atoms->structure=0.108 ms, graph=0.691 ms, to(device)=0.155 ms, process_graphs=1.323 ms, embedding=1.332 ms, interaction=41.444 ms, energy_head=0.430 ms, force_grad=0.000 ms, stress_grad=0.000 ms, cpu_output=0.042 ms
+run 08/10: atoms->structure=0.109 ms, graph=0.685 ms, to(device)=0.155 ms, process_graphs=1.323 ms, embedding=1.317 ms, interaction=41.447 ms, energy_head=0.433 ms, force_grad=0.000 ms, stress_grad=0.000 ms, cpu_output=0.043 ms
+run 09/10: atoms->structure=0.109 ms, graph=0.694 ms, to(device)=0.157 ms, process_graphs=1.325 ms, embedding=1.326 ms, interaction=41.517 ms, energy_head=0.432 ms, force_grad=0.000 ms, stress_grad=0.000 ms, cpu_output=0.042 ms
+run 10/10: atoms->structure=0.110 ms, graph=0.689 ms, to(device)=0.156 ms, process_graphs=1.319 ms, embedding=1.329 ms, interaction=41.487 ms, energy_head=0.434 ms, force_grad=0.000 ms, stress_grad=0.000 ms, cpu_output=0.042 ms
+
+Summary:
+atoms_to_structure_ms: mean=0.114 ms, std=0.005 ms, min=0.108 ms, max=0.123 ms
+graph_converter_ms: mean=0.695 ms, std=0.005 ms, min=0.685 ms, max=0.703 ms
+graph_to_device_ms: mean=0.156 ms, std=0.001 ms, min=0.155 ms, max=0.159 ms
+process_graphs_ms: mean=1.326 ms, std=0.007 ms, min=1.318 ms, max=1.339 ms
+embedding_ms: mean=1.331 ms, std=0.009 ms, min=1.317 ms, max=1.344 ms
+interaction_blocks_ms: mean=41.464 ms, std=0.049 ms, min=41.393 ms, max=41.545 ms
+energy_head_ms: mean=0.435 ms, std=0.004 ms, min=0.430 ms, max=0.442 ms
+force_autograd_ms: mean=0.000 ms, std=0.000 ms, min=0.000 ms, max=0.000 ms
+stress_autograd_ms: mean=0.000 ms, std=0.000 ms, min=0.000 ms, max=0.000 ms
+cpu_output_ms: mean=0.044 ms, std=0.003 ms, min=0.042 ms, max=0.049 ms
+
+Category Summary:
+overhead_total=2.336 ms (5.13%)
+model_core_total=43.230 ms (94.87%)
+
+Time Ranking:
+1. interaction_blocks_ms: 41.464 ms (91.00%) [model_core]
+2. embedding_ms: 1.331 ms (2.92%) [model_core]
+3. process_graphs_ms: 1.326 ms (2.91%) [overhead]
+4. graph_converter_ms: 0.695 ms (1.52%) [overhead]
+5. energy_head_ms: 0.435 ms (0.95%) [model_core]
+6. graph_to_device_ms: 0.156 ms (0.34%) [overhead]
+7. atoms_to_structure_ms: 0.114 ms (0.25%) [overhead]
+8. cpu_output_ms: 0.044 ms (0.10%) [overhead]
+9. force_autograd_ms: 0.000 ms (0.00%) [model_core]
+10. stress_autograd_ms: 0.000 ms (0.00%) [model_core]
+
+=== Profile task=ef ===
+run 01/10: atoms->structure=0.112 ms, graph=0.706 ms, to(device)=0.157 ms, process_graphs=1.321 ms, embedding=1.327 ms, interaction=41.465 ms, energy_head=0.434 ms, force_grad=59.093 ms, stress_grad=0.000 ms, cpu_output=0.120 ms
+run 02/10: atoms->structure=0.112 ms, graph=0.698 ms, to(device)=0.157 ms, process_graphs=1.327 ms, embedding=1.336 ms, interaction=41.377 ms, energy_head=0.428 ms, force_grad=59.258 ms, stress_grad=0.000 ms, cpu_output=0.124 ms
+run 03/10: atoms->structure=0.112 ms, graph=0.692 ms, to(device)=0.157 ms, process_graphs=1.322 ms, embedding=1.322 ms, interaction=41.455 ms, energy_head=0.428 ms, force_grad=59.143 ms, stress_grad=0.000 ms, cpu_output=0.122 ms
+run 04/10: atoms->structure=0.110 ms, graph=0.691 ms, to(device)=0.157 ms, process_graphs=1.327 ms, embedding=1.322 ms, interaction=41.403 ms, energy_head=0.433 ms, force_grad=59.091 ms, stress_grad=0.000 ms, cpu_output=0.121 ms
+run 05/10: atoms->structure=0.116 ms, graph=0.683 ms, to(device)=0.155 ms, process_graphs=1.312 ms, embedding=1.326 ms, interaction=41.352 ms, energy_head=0.429 ms, force_grad=59.082 ms, stress_grad=0.000 ms, cpu_output=0.122 ms
+run 06/10: atoms->structure=0.109 ms, graph=0.691 ms, to(device)=0.156 ms, process_graphs=1.317 ms, embedding=1.335 ms, interaction=41.341 ms, energy_head=0.428 ms, force_grad=59.010 ms, stress_grad=0.000 ms, cpu_output=0.122 ms
+run 07/10: atoms->structure=0.109 ms, graph=0.690 ms, to(device)=0.156 ms, process_graphs=1.317 ms, embedding=1.318 ms, interaction=41.367 ms, energy_head=0.425 ms, force_grad=59.073 ms, stress_grad=0.000 ms, cpu_output=0.119 ms
+run 08/10: atoms->structure=0.109 ms, graph=0.684 ms, to(device)=0.155 ms, process_graphs=1.314 ms, embedding=1.333 ms, interaction=41.346 ms, energy_head=0.427 ms, force_grad=58.847 ms, stress_grad=0.000 ms, cpu_output=0.193 ms
+run 09/10: atoms->structure=0.108 ms, graph=0.697 ms, to(device)=0.157 ms, process_graphs=1.323 ms, embedding=1.327 ms, interaction=41.432 ms, energy_head=0.430 ms, force_grad=59.240 ms, stress_grad=0.000 ms, cpu_output=0.121 ms
+run 10/10: atoms->structure=0.111 ms, graph=0.690 ms, to(device)=0.155 ms, process_graphs=1.320 ms, embedding=1.323 ms, interaction=41.483 ms, energy_head=0.429 ms, force_grad=58.853 ms, stress_grad=0.000 ms, cpu_output=0.207 ms
+
+Summary:
+atoms_to_structure_ms: mean=0.111 ms, std=0.002 ms, min=0.108 ms, max=0.116 ms
+graph_converter_ms: mean=0.692 ms, std=0.007 ms, min=0.683 ms, max=0.706 ms
+graph_to_device_ms: mean=0.156 ms, std=0.001 ms, min=0.155 ms, max=0.157 ms
+process_graphs_ms: mean=1.320 ms, std=0.005 ms, min=1.312 ms, max=1.327 ms
+embedding_ms: mean=1.327 ms, std=0.006 ms, min=1.318 ms, max=1.336 ms
+interaction_blocks_ms: mean=41.402 ms, std=0.053 ms, min=41.341 ms, max=41.483 ms
+energy_head_ms: mean=0.429 ms, std=0.002 ms, min=0.425 ms, max=0.434 ms
+force_autograd_ms: mean=59.069 ms, std=0.138 ms, min=58.847 ms, max=59.258 ms
+stress_autograd_ms: mean=0.000 ms, std=0.000 ms, min=0.000 ms, max=0.000 ms
+cpu_output_ms: mean=0.137 ms, std=0.033 ms, min=0.119 ms, max=0.207 ms
+
+Category Summary:
+overhead_total=2.416 ms (2.31%)
+model_core_total=102.227 ms (97.69%)
+
+Time Ranking:
+1. force_autograd_ms: 59.069 ms (56.45%) [model_core]
+2. interaction_blocks_ms: 41.402 ms (39.56%) [model_core]
+3. embedding_ms: 1.327 ms (1.27%) [model_core]
+4. process_graphs_ms: 1.320 ms (1.26%) [overhead]
+5. graph_converter_ms: 0.692 ms (0.66%) [overhead]
+6. energy_head_ms: 0.429 ms (0.41%) [model_core]
+7. graph_to_device_ms: 0.156 ms (0.15%) [overhead]
+8. cpu_output_ms: 0.137 ms (0.13%) [overhead]
+9. atoms_to_structure_ms: 0.111 ms (0.11%) [overhead]
+10. stress_autograd_ms: 0.000 ms (0.00%) [model_core]
+
+=== Profile task=efs ===
+run 01/10: atoms->structure=0.112 ms, graph=0.686 ms, to(device)=0.155 ms, process_graphs=3.168 ms, embedding=2.741 ms, interaction=82.421 ms, energy_head=0.854 ms, force_grad=58.883 ms, stress_grad=59.311 ms, cpu_output=0.166 ms
+run 02/10: atoms->structure=0.112 ms, graph=0.699 ms, to(device)=0.156 ms, process_graphs=3.142 ms, embedding=2.696 ms, interaction=82.667 ms, energy_head=0.856 ms, force_grad=58.855 ms, stress_grad=59.308 ms, cpu_output=0.165 ms
+run 03/10: atoms->structure=0.114 ms, graph=0.711 ms, to(device)=0.156 ms, process_graphs=3.155 ms, embedding=2.789 ms, interaction=82.448 ms, energy_head=0.856 ms, force_grad=58.792 ms, stress_grad=59.335 ms, cpu_output=0.166 ms
+run 04/10: atoms->structure=0.112 ms, graph=0.697 ms, to(device)=0.156 ms, process_graphs=3.177 ms, embedding=2.859 ms, interaction=82.710 ms, energy_head=0.854 ms, force_grad=58.764 ms, stress_grad=59.303 ms, cpu_output=0.223 ms
+run 05/10: atoms->structure=0.111 ms, graph=0.691 ms, to(device)=0.156 ms, process_graphs=3.121 ms, embedding=2.963 ms, interaction=82.628 ms, energy_head=0.854 ms, force_grad=58.560 ms, stress_grad=59.353 ms, cpu_output=0.189 ms
+run 06/10: atoms->structure=0.111 ms, graph=0.705 ms, to(device)=0.157 ms, process_graphs=3.132 ms, embedding=2.960 ms, interaction=82.641 ms, energy_head=0.859 ms, force_grad=58.583 ms, stress_grad=59.144 ms, cpu_output=0.216 ms
+run 07/10: atoms->structure=0.112 ms, graph=0.685 ms, to(device)=0.156 ms, process_graphs=3.139 ms, embedding=2.951 ms, interaction=82.628 ms, energy_head=0.861 ms, force_grad=58.518 ms, stress_grad=58.957 ms, cpu_output=0.226 ms
+run 08/10: atoms->structure=0.111 ms, graph=0.706 ms, to(device)=0.156 ms, process_graphs=3.129 ms, embedding=2.970 ms, interaction=82.346 ms, energy_head=0.851 ms, force_grad=58.339 ms, stress_grad=58.756 ms, cpu_output=0.223 ms
+run 09/10: atoms->structure=0.109 ms, graph=0.720 ms, to(device)=0.156 ms, process_graphs=3.134 ms, embedding=2.854 ms, interaction=82.096 ms, energy_head=0.849 ms, force_grad=58.514 ms, stress_grad=59.011 ms, cpu_output=0.188 ms
+run 10/10: atoms->structure=0.109 ms, graph=0.726 ms, to(device)=0.155 ms, process_graphs=3.139 ms, embedding=2.972 ms, interaction=82.585 ms, energy_head=0.852 ms, force_grad=58.324 ms, stress_grad=58.682 ms, cpu_output=0.222 ms
+
+Summary:
+atoms_to_structure_ms: mean=0.111 ms, std=0.001 ms, min=0.109 ms, max=0.114 ms
+graph_converter_ms: mean=0.703 ms, std=0.014 ms, min=0.685 ms, max=0.726 ms
+graph_to_device_ms: mean=0.156 ms, std=0.000 ms, min=0.155 ms, max=0.157 ms
+process_graphs_ms: mean=3.144 ms, std=0.018 ms, min=3.121 ms, max=3.177 ms
+embedding_ms: mean=2.876 ms, std=0.104 ms, min=2.696 ms, max=2.972 ms
+interaction_blocks_ms: mean=82.517 ms, std=0.190 ms, min=82.096 ms, max=82.710 ms
+energy_head_ms: mean=0.855 ms, std=0.004 ms, min=0.849 ms, max=0.861 ms
+force_autograd_ms: mean=58.613 ms, std=0.202 ms, min=58.324 ms, max=58.883 ms
+stress_autograd_ms: mean=59.116 ms, std=0.252 ms, min=58.682 ms, max=59.353 ms
+cpu_output_ms: mean=0.198 ms, std=0.026 ms, min=0.165 ms, max=0.226 ms
+
+Category Summary:
+overhead_total=4.312 ms (2.07%)
+model_core_total=203.976 ms (97.93%)
+
+Time Ranking:
+1. interaction_blocks_ms: 82.517 ms (39.62%) [model_core]
+2. stress_autograd_ms: 59.116 ms (28.38%) [model_core]
+3. force_autograd_ms: 58.613 ms (28.14%) [model_core]
+4. process_graphs_ms: 3.144 ms (1.51%) [overhead]
+5. embedding_ms: 2.876 ms (1.38%) [model_core]
+6. energy_head_ms: 0.855 ms (0.41%) [model_core]
+7. graph_converter_ms: 0.703 ms (0.34%) [overhead]
+8. cpu_output_ms: 0.198 ms (0.10%) [overhead]
+9. graph_to_device_ms: 0.156 ms (0.07%) [overhead]
+10. atoms_to_structure_ms: 0.111 ms (0.05%) [overhead]

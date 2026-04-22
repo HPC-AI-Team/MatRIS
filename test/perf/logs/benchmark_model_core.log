@@ -1,0 +1,86 @@
+Benchmark: FP32 model-core single-structure latency
+Model: matris_10m_oam
+Path: structure -> graph -> model forward
+Base structure: ASE bulk Cu, a=5.43, cubic=True
+Structures under test: Cu_bulk
+Device: cuda
+CUDA_VISIBLE_DEVICES: 0
+Warmup runs: 5
+Measure runs: 20
+GPU: NVIDIA A800-SXM4-80GB
+CUDA in torch: 12.4
+MatRIS initialized with 10443505 parameters
+Loading matris_10m_oam successfully, running on cuda.
+
+##### Structure: Cu_bulk, supercell=(1, 1, 1) #####
+
+=== Benchmark structure=Cu_bulk, task=e (model core) ===
+run 01/20: latency=55.317 ms, peak_mem=186.23 MB
+run 02/20: latency=62.312 ms, peak_mem=186.23 MB
+run 03/20: latency=55.309 ms, peak_mem=186.23 MB
+run 04/20: latency=55.237 ms, peak_mem=186.23 MB
+run 05/20: latency=55.306 ms, peak_mem=186.23 MB
+run 06/20: latency=59.218 ms, peak_mem=186.23 MB
+run 07/20: latency=61.582 ms, peak_mem=186.23 MB
+run 08/20: latency=60.510 ms, peak_mem=186.23 MB
+run 09/20: latency=58.836 ms, peak_mem=186.23 MB
+run 10/20: latency=72.561 ms, peak_mem=186.23 MB
+run 11/20: latency=57.451 ms, peak_mem=186.23 MB
+run 12/20: latency=57.311 ms, peak_mem=186.23 MB
+run 13/20: latency=57.268 ms, peak_mem=186.23 MB
+run 14/20: latency=64.026 ms, peak_mem=186.23 MB
+run 15/20: latency=65.541 ms, peak_mem=186.23 MB
+run 16/20: latency=57.066 ms, peak_mem=186.23 MB
+run 17/20: latency=63.802 ms, peak_mem=186.23 MB
+run 18/20: latency=56.989 ms, peak_mem=186.23 MB
+run 19/20: latency=56.997 ms, peak_mem=186.23 MB
+run 20/20: latency=57.031 ms, peak_mem=186.23 MB
+
+=== Benchmark structure=Cu_bulk, task=ef (model core) ===
+run 01/20: latency=121.446 ms, peak_mem=194.36 MB
+run 02/20: latency=118.064 ms, peak_mem=194.36 MB
+run 03/20: latency=118.196 ms, peak_mem=194.36 MB
+run 04/20: latency=117.874 ms, peak_mem=194.36 MB
+run 05/20: latency=117.953 ms, peak_mem=194.36 MB
+run 06/20: latency=117.769 ms, peak_mem=194.36 MB
+run 07/20: latency=117.631 ms, peak_mem=194.36 MB
+run 08/20: latency=118.239 ms, peak_mem=194.36 MB
+run 09/20: latency=120.098 ms, peak_mem=194.36 MB
+run 10/20: latency=117.151 ms, peak_mem=194.36 MB
+run 11/20: latency=121.845 ms, peak_mem=194.36 MB
+run 12/20: latency=118.008 ms, peak_mem=194.36 MB
+run 13/20: latency=117.870 ms, peak_mem=194.36 MB
+run 14/20: latency=126.510 ms, peak_mem=194.36 MB
+run 15/20: latency=119.357 ms, peak_mem=194.36 MB
+run 16/20: latency=117.992 ms, peak_mem=194.36 MB
+run 17/20: latency=133.845 ms, peak_mem=194.36 MB
+run 18/20: latency=122.965 ms, peak_mem=194.36 MB
+run 19/20: latency=121.393 ms, peak_mem=194.36 MB
+run 20/20: latency=121.220 ms, peak_mem=194.36 MB
+
+=== Benchmark structure=Cu_bulk, task=efs (model core) ===
+run 01/20: latency=121.815 ms, peak_mem=194.36 MB
+run 02/20: latency=121.772 ms, peak_mem=194.36 MB
+run 03/20: latency=121.777 ms, peak_mem=194.36 MB
+run 04/20: latency=125.530 ms, peak_mem=194.36 MB
+run 05/20: latency=121.559 ms, peak_mem=194.36 MB
+run 06/20: latency=121.200 ms, peak_mem=194.36 MB
+run 07/20: latency=128.407 ms, peak_mem=194.36 MB
+run 08/20: latency=121.232 ms, peak_mem=194.36 MB
+run 09/20: latency=121.508 ms, peak_mem=194.36 MB
+run 10/20: latency=121.351 ms, peak_mem=194.36 MB
+run 11/20: latency=135.720 ms, peak_mem=194.36 MB
+run 12/20: latency=121.548 ms, peak_mem=194.36 MB
+run 13/20: latency=121.229 ms, peak_mem=194.36 MB
+run 14/20: latency=130.581 ms, peak_mem=194.36 MB
+run 15/20: latency=121.698 ms, peak_mem=194.36 MB
+run 16/20: latency=121.126 ms, peak_mem=194.36 MB
+run 17/20: latency=121.175 ms, peak_mem=194.36 MB
+run 18/20: latency=121.029 ms, peak_mem=194.36 MB
+run 19/20: latency=125.791 ms, peak_mem=194.36 MB
+run 20/20: latency=121.167 ms, peak_mem=194.36 MB
+
+=== Summary ===
+struct=Cu_bulk, task=e: mean=59.483 ms, std=4.408 ms, min=55.237 ms, max=72.561 ms, peak_mem=186.23 MB
+struct=Cu_bulk, task=ef: mean=120.271 ms, std=3.979 ms, min=117.151 ms, max=133.845 ms, peak_mem=194.36 MB
+struct=Cu_bulk, task=efs: mean=123.361 ms, std=3.966 ms, min=121.029 ms, max=135.720 ms, peak_mem=194.36 MB

@@ -1,0 +1,86 @@
+Benchmark: FP32 single-structure ASE end-to-end latency
+Model: matris_10m_oam
+Structure: ASE bulk Cu, a=5.43, cubic=True
+Device: cuda
+CUDA_VISIBLE_DEVICES: 0
+Warmup runs: 5
+Measure runs: 20
+GPU: NVIDIA A800-SXM4-80GB
+CUDA in torch: 12.4
+
+=== Benchmark task=e (ASE e2e) ===
+MatRIS initialized with 10443505 parameters
+Loading matris_10m_oam successfully, running on cuda.
+run 01/20: latency=0.136 ms, peak_mem=47.97 MB
+run 02/20: latency=0.134 ms, peak_mem=47.97 MB
+run 03/20: latency=0.140 ms, peak_mem=47.97 MB
+run 04/20: latency=0.132 ms, peak_mem=47.97 MB
+run 05/20: latency=0.132 ms, peak_mem=47.97 MB
+run 06/20: latency=0.136 ms, peak_mem=47.97 MB
+run 07/20: latency=0.131 ms, peak_mem=47.97 MB
+run 08/20: latency=0.127 ms, peak_mem=47.97 MB
+run 09/20: latency=0.148 ms, peak_mem=47.97 MB
+run 10/20: latency=0.130 ms, peak_mem=47.97 MB
+run 11/20: latency=0.130 ms, peak_mem=47.97 MB
+run 12/20: latency=0.131 ms, peak_mem=47.97 MB
+run 13/20: latency=0.130 ms, peak_mem=47.97 MB
+run 14/20: latency=0.128 ms, peak_mem=47.97 MB
+run 15/20: latency=0.128 ms, peak_mem=47.97 MB
+run 16/20: latency=0.131 ms, peak_mem=47.97 MB
+run 17/20: latency=0.130 ms, peak_mem=47.97 MB
+run 18/20: latency=0.128 ms, peak_mem=47.97 MB
+run 19/20: latency=0.126 ms, peak_mem=47.97 MB
+run 20/20: latency=0.125 ms, peak_mem=47.97 MB
+
+=== Benchmark task=ef (ASE e2e) ===
+MatRIS initialized with 10443505 parameters
+Loading matris_10m_oam successfully, running on cuda.
+run 01/20: latency=0.234 ms, peak_mem=56.09 MB
+run 02/20: latency=0.233 ms, peak_mem=56.09 MB
+run 03/20: latency=0.231 ms, peak_mem=56.09 MB
+run 04/20: latency=0.235 ms, peak_mem=56.09 MB
+run 05/20: latency=0.225 ms, peak_mem=56.09 MB
+run 06/20: latency=0.230 ms, peak_mem=56.09 MB
+run 07/20: latency=0.232 ms, peak_mem=56.09 MB
+run 08/20: latency=0.227 ms, peak_mem=56.09 MB
+run 09/20: latency=0.232 ms, peak_mem=56.09 MB
+run 10/20: latency=0.229 ms, peak_mem=56.09 MB
+run 11/20: latency=0.231 ms, peak_mem=56.09 MB
+run 12/20: latency=0.227 ms, peak_mem=56.09 MB
+run 13/20: latency=0.233 ms, peak_mem=56.09 MB
+run 14/20: latency=0.229 ms, peak_mem=56.09 MB
+run 15/20: latency=0.230 ms, peak_mem=56.09 MB
+run 16/20: latency=0.400 ms, peak_mem=56.09 MB
+run 17/20: latency=0.240 ms, peak_mem=56.09 MB
+run 18/20: latency=0.232 ms, peak_mem=56.09 MB
+run 19/20: latency=0.228 ms, peak_mem=56.09 MB
+run 20/20: latency=0.229 ms, peak_mem=56.09 MB
+
+=== Benchmark task=efs (ASE e2e) ===
+MatRIS initialized with 10443505 parameters
+Loading matris_10m_oam successfully, running on cuda.
+run 01/20: latency=0.351 ms, peak_mem=95.93 MB
+run 02/20: latency=0.354 ms, peak_mem=95.93 MB
+run 03/20: latency=0.354 ms, peak_mem=95.93 MB
+run 04/20: latency=0.341 ms, peak_mem=95.93 MB
+run 05/20: latency=0.340 ms, peak_mem=95.93 MB
+run 06/20: latency=0.337 ms, peak_mem=95.93 MB
+run 07/20: latency=0.336 ms, peak_mem=95.93 MB
+run 08/20: latency=0.345 ms, peak_mem=95.93 MB
+run 09/20: latency=0.346 ms, peak_mem=95.93 MB
+run 10/20: latency=0.340 ms, peak_mem=95.93 MB
+run 11/20: latency=0.344 ms, peak_mem=95.93 MB
+run 12/20: latency=0.341 ms, peak_mem=95.93 MB
+run 13/20: latency=0.351 ms, peak_mem=95.93 MB
+run 14/20: latency=0.348 ms, peak_mem=95.93 MB
+run 15/20: latency=0.339 ms, peak_mem=95.93 MB
+run 16/20: latency=0.342 ms, peak_mem=95.93 MB
+run 17/20: latency=0.377 ms, peak_mem=95.93 MB
+run 18/20: latency=0.345 ms, peak_mem=95.93 MB
+run 19/20: latency=0.339 ms, peak_mem=95.93 MB
+run 20/20: latency=0.341 ms, peak_mem=95.93 MB
+
+=== Summary ===
+task=e: mean=0.132 ms, std=0.005 ms, min=0.125 ms, max=0.148 ms, peak_mem=47.97 MB
+task=ef: mean=0.239 ms, std=0.038 ms, min=0.225 ms, max=0.400 ms, peak_mem=56.09 MB
+task=efs: mean=0.346 ms, std=0.009 ms, min=0.336 ms, max=0.377 ms, peak_mem=95.93 MB

@@ -1,0 +1,170 @@
+Benchmark: FP32 batch throughput
+Model: matris_10m_oam
+Structure: ASE bulk Cu, a=5.43, cubic=True
+Device: cuda
+CUDA_VISIBLE_DEVICES: 0
+Warmup runs: 3
+Measure runs: 10
+Batch sizes: (1, 2, 4, 8)
+GPU: NVIDIA A800-SXM4-80GB
+CUDA in torch: 12.4
+MatRIS initialized with 10443505 parameters
+Loading matris_10m_oam successfully, running on cuda.
+
+=== Benchmark task=e, batch_size=1 ===
+run 01/10: total=54.866 ms, throughput=18.226 structures/s, per_structure=54.866 ms, peak_mem=186.23 MB
+run 02/10: total=54.606 ms, throughput=18.313 structures/s, per_structure=54.606 ms, peak_mem=186.23 MB
+run 03/10: total=54.663 ms, throughput=18.294 structures/s, per_structure=54.663 ms, peak_mem=186.23 MB
+run 04/10: total=55.135 ms, throughput=18.137 structures/s, per_structure=55.135 ms, peak_mem=186.23 MB
+run 05/10: total=66.861 ms, throughput=14.956 structures/s, per_structure=66.861 ms, peak_mem=186.23 MB
+run 06/10: total=54.997 ms, throughput=18.183 structures/s, per_structure=54.997 ms, peak_mem=186.23 MB
+run 07/10: total=55.034 ms, throughput=18.171 structures/s, per_structure=55.034 ms, peak_mem=186.23 MB
+run 08/10: total=54.775 ms, throughput=18.256 structures/s, per_structure=54.775 ms, peak_mem=186.23 MB
+run 09/10: total=54.830 ms, throughput=18.238 structures/s, per_structure=54.830 ms, peak_mem=186.23 MB
+run 10/10: total=67.191 ms, throughput=14.883 structures/s, per_structure=67.191 ms, peak_mem=186.23 MB
+
+=== Benchmark task=e, batch_size=2 ===
+run 01/10: total=63.591 ms, throughput=31.451 structures/s, per_structure=31.796 ms, peak_mem=324.22 MB
+run 02/10: total=64.368 ms, throughput=31.071 structures/s, per_structure=32.184 ms, peak_mem=324.22 MB
+run 03/10: total=63.722 ms, throughput=31.386 structures/s, per_structure=31.861 ms, peak_mem=324.22 MB
+run 04/10: total=63.759 ms, throughput=31.368 structures/s, per_structure=31.879 ms, peak_mem=324.22 MB
+run 05/10: total=75.917 ms, throughput=26.345 structures/s, per_structure=37.959 ms, peak_mem=324.22 MB
+run 06/10: total=63.719 ms, throughput=31.388 structures/s, per_structure=31.859 ms, peak_mem=324.22 MB
+run 07/10: total=65.086 ms, throughput=30.729 structures/s, per_structure=32.543 ms, peak_mem=324.22 MB
+run 08/10: total=63.721 ms, throughput=31.387 structures/s, per_structure=31.861 ms, peak_mem=324.22 MB
+run 09/10: total=70.608 ms, throughput=28.325 structures/s, per_structure=35.304 ms, peak_mem=324.22 MB
+run 10/10: total=63.999 ms, throughput=31.250 structures/s, per_structure=31.999 ms, peak_mem=324.22 MB
+
+=== Benchmark task=e, batch_size=4 ===
+run 01/10: total=59.624 ms, throughput=67.087 structures/s, per_structure=14.906 ms, peak_mem=609.53 MB
+run 02/10: total=60.537 ms, throughput=66.075 structures/s, per_structure=15.134 ms, peak_mem=609.53 MB
+run 03/10: total=58.626 ms, throughput=68.229 structures/s, per_structure=14.657 ms, peak_mem=609.53 MB
+run 04/10: total=58.625 ms, throughput=68.231 structures/s, per_structure=14.656 ms, peak_mem=609.53 MB
+run 05/10: total=69.911 ms, throughput=57.216 structures/s, per_structure=17.478 ms, peak_mem=609.53 MB
+run 06/10: total=58.639 ms, throughput=68.214 structures/s, per_structure=14.660 ms, peak_mem=609.53 MB
+run 07/10: total=58.598 ms, throughput=68.261 structures/s, per_structure=14.650 ms, peak_mem=609.53 MB
+run 08/10: total=57.808 ms, throughput=69.195 structures/s, per_structure=14.452 ms, peak_mem=609.53 MB
+run 09/10: total=58.238 ms, throughput=68.684 structures/s, per_structure=14.560 ms, peak_mem=609.53 MB
+run 10/10: total=72.712 ms, throughput=55.011 structures/s, per_structure=18.178 ms, peak_mem=609.53 MB
+
+=== Benchmark task=e, batch_size=8 ===
+run 01/10: total=79.316 ms, throughput=100.862 structures/s, per_structure=9.915 ms, peak_mem=1151.33 MB
+run 02/10: total=78.404 ms, throughput=102.036 structures/s, per_structure=9.800 ms, peak_mem=1151.33 MB
+run 03/10: total=91.932 ms, throughput=87.021 structures/s, per_structure=11.491 ms, peak_mem=1151.33 MB
+run 04/10: total=78.571 ms, throughput=101.819 structures/s, per_structure=9.821 ms, peak_mem=1151.33 MB
+run 05/10: total=79.356 ms, throughput=100.812 structures/s, per_structure=9.919 ms, peak_mem=1151.33 MB
+run 06/10: total=85.372 ms, throughput=93.708 structures/s, per_structure=10.672 ms, peak_mem=1151.33 MB
+run 07/10: total=78.456 ms, throughput=101.968 structures/s, per_structure=9.807 ms, peak_mem=1151.33 MB
+run 08/10: total=90.600 ms, throughput=88.300 structures/s, per_structure=11.325 ms, peak_mem=1151.33 MB
+run 09/10: total=78.356 ms, throughput=102.098 structures/s, per_structure=9.794 ms, peak_mem=1151.33 MB
+run 10/10: total=79.476 ms, throughput=100.660 structures/s, per_structure=9.934 ms, peak_mem=1151.33 MB
+
+=== Benchmark task=ef, batch_size=1 ===
+run 01/10: total=112.885 ms, throughput=8.859 structures/s, per_structure=112.885 ms, peak_mem=194.36 MB
+run 02/10: total=119.384 ms, throughput=8.376 structures/s, per_structure=119.384 ms, peak_mem=194.36 MB
+run 03/10: total=135.450 ms, throughput=7.383 structures/s, per_structure=135.450 ms, peak_mem=194.36 MB
+run 04/10: total=113.129 ms, throughput=8.839 structures/s, per_structure=113.129 ms, peak_mem=194.36 MB
+run 05/10: total=112.796 ms, throughput=8.866 structures/s, per_structure=112.796 ms, peak_mem=194.36 MB
+run 06/10: total=116.760 ms, throughput=8.565 structures/s, per_structure=116.760 ms, peak_mem=194.36 MB
+run 07/10: total=122.727 ms, throughput=8.148 structures/s, per_structure=122.727 ms, peak_mem=194.36 MB
+run 08/10: total=112.947 ms, throughput=8.854 structures/s, per_structure=112.947 ms, peak_mem=194.36 MB
+run 09/10: total=112.826 ms, throughput=8.863 structures/s, per_structure=112.826 ms, peak_mem=194.36 MB
+run 10/10: total=121.249 ms, throughput=8.247 structures/s, per_structure=121.249 ms, peak_mem=194.36 MB
+
+=== Benchmark task=ef, batch_size=2 ===
+run 01/10: total=122.897 ms, throughput=16.274 structures/s, per_structure=61.448 ms, peak_mem=331.94 MB
+run 02/10: total=122.347 ms, throughput=16.347 structures/s, per_structure=61.173 ms, peak_mem=331.94 MB
+run 03/10: total=122.457 ms, throughput=16.332 structures/s, per_structure=61.229 ms, peak_mem=331.94 MB
+run 04/10: total=139.279 ms, throughput=14.360 structures/s, per_structure=69.640 ms, peak_mem=331.94 MB
+run 05/10: total=136.085 ms, throughput=14.697 structures/s, per_structure=68.043 ms, peak_mem=331.94 MB
+run 06/10: total=122.494 ms, throughput=16.327 structures/s, per_structure=61.247 ms, peak_mem=331.94 MB
+run 07/10: total=124.748 ms, throughput=16.032 structures/s, per_structure=62.374 ms, peak_mem=331.94 MB
+run 08/10: total=122.348 ms, throughput=16.347 structures/s, per_structure=61.174 ms, peak_mem=331.94 MB
+run 09/10: total=122.064 ms, throughput=16.385 structures/s, per_structure=61.032 ms, peak_mem=331.94 MB
+run 10/10: total=122.371 ms, throughput=16.344 structures/s, per_structure=61.186 ms, peak_mem=331.94 MB
+
+=== Benchmark task=ef, batch_size=4 ===
+run 01/10: total=118.795 ms, throughput=33.671 structures/s, per_structure=29.699 ms, peak_mem=617.78 MB
+run 02/10: total=117.101 ms, throughput=34.159 structures/s, per_structure=29.275 ms, peak_mem=617.78 MB
+run 03/10: total=129.697 ms, throughput=30.841 structures/s, per_structure=32.424 ms, peak_mem=617.78 MB
+run 04/10: total=118.844 ms, throughput=33.658 structures/s, per_structure=29.711 ms, peak_mem=617.78 MB
+run 05/10: total=117.476 ms, throughput=34.050 structures/s, per_structure=29.369 ms, peak_mem=617.78 MB
+run 06/10: total=122.194 ms, throughput=32.735 structures/s, per_structure=30.549 ms, peak_mem=617.78 MB
+run 07/10: total=125.801 ms, throughput=31.796 structures/s, per_structure=31.450 ms, peak_mem=617.78 MB
+run 08/10: total=117.149 ms, throughput=34.145 structures/s, per_structure=29.287 ms, peak_mem=617.78 MB
+run 09/10: total=117.170 ms, throughput=34.138 structures/s, per_structure=29.293 ms, peak_mem=617.78 MB
+run 10/10: total=116.943 ms, throughput=34.205 structures/s, per_structure=29.236 ms, peak_mem=617.78 MB
+
+=== Benchmark task=ef, batch_size=8 ===
+run 01/10: total=146.849 ms, throughput=54.478 structures/s, per_structure=18.356 ms, peak_mem=1159.45 MB
+run 02/10: total=137.594 ms, throughput=58.142 structures/s, per_structure=17.199 ms, peak_mem=1159.45 MB
+run 03/10: total=136.171 ms, throughput=58.750 structures/s, per_structure=17.021 ms, peak_mem=1159.45 MB
+run 04/10: total=155.742 ms, throughput=51.367 structures/s, per_structure=19.468 ms, peak_mem=1159.45 MB
+run 05/10: total=134.327 ms, throughput=59.556 structures/s, per_structure=16.791 ms, peak_mem=1159.45 MB
+run 06/10: total=153.429 ms, throughput=52.141 structures/s, per_structure=19.179 ms, peak_mem=1159.45 MB
+run 07/10: total=154.305 ms, throughput=51.846 structures/s, per_structure=19.288 ms, peak_mem=1159.45 MB
+run 08/10: total=136.350 ms, throughput=58.673 structures/s, per_structure=17.044 ms, peak_mem=1159.45 MB
+run 09/10: total=136.664 ms, throughput=58.538 structures/s, per_structure=17.083 ms, peak_mem=1159.45 MB
+run 10/10: total=156.019 ms, throughput=51.276 structures/s, per_structure=19.502 ms, peak_mem=1159.45 MB
+
+=== Benchmark task=efs, batch_size=1 ===
+run 01/10: total=126.206 ms, throughput=7.924 structures/s, per_structure=126.206 ms, peak_mem=194.36 MB
+run 02/10: total=113.430 ms, throughput=8.816 structures/s, per_structure=113.430 ms, peak_mem=194.36 MB
+run 03/10: total=113.158 ms, throughput=8.837 structures/s, per_structure=113.158 ms, peak_mem=194.36 MB
+run 04/10: total=113.704 ms, throughput=8.795 structures/s, per_structure=113.704 ms, peak_mem=194.36 MB
+run 05/10: total=114.855 ms, throughput=8.707 structures/s, per_structure=114.855 ms, peak_mem=194.36 MB
+run 06/10: total=115.164 ms, throughput=8.683 structures/s, per_structure=115.164 ms, peak_mem=194.36 MB
+run 07/10: total=113.402 ms, throughput=8.818 structures/s, per_structure=113.402 ms, peak_mem=194.36 MB
+run 08/10: total=113.213 ms, throughput=8.833 structures/s, per_structure=113.213 ms, peak_mem=194.36 MB
+run 09/10: total=122.896 ms, throughput=8.137 structures/s, per_structure=122.896 ms, peak_mem=194.36 MB
+run 10/10: total=113.309 ms, throughput=8.825 structures/s, per_structure=113.309 ms, peak_mem=194.36 MB
+
+=== Benchmark task=efs, batch_size=2 ===
+run 01/10: total=122.617 ms, throughput=16.311 structures/s, per_structure=61.308 ms, peak_mem=331.94 MB
+run 02/10: total=132.842 ms, throughput=15.055 structures/s, per_structure=66.421 ms, peak_mem=331.94 MB
+run 03/10: total=126.213 ms, throughput=15.846 structures/s, per_structure=63.107 ms, peak_mem=331.94 MB
+run 04/10: total=122.659 ms, throughput=16.305 structures/s, per_structure=61.329 ms, peak_mem=331.94 MB
+run 05/10: total=124.312 ms, throughput=16.089 structures/s, per_structure=62.156 ms, peak_mem=331.94 MB
+run 06/10: total=122.733 ms, throughput=16.296 structures/s, per_structure=61.367 ms, peak_mem=331.94 MB
+run 07/10: total=141.335 ms, throughput=14.151 structures/s, per_structure=70.668 ms, peak_mem=331.94 MB
+run 08/10: total=122.822 ms, throughput=16.284 structures/s, per_structure=61.411 ms, peak_mem=331.94 MB
+run 09/10: total=130.014 ms, throughput=15.383 structures/s, per_structure=65.007 ms, peak_mem=331.94 MB
+run 10/10: total=126.430 ms, throughput=15.819 structures/s, per_structure=63.215 ms, peak_mem=331.94 MB
+
+=== Benchmark task=efs, batch_size=4 ===
+run 01/10: total=133.804 ms, throughput=29.894 structures/s, per_structure=33.451 ms, peak_mem=617.80 MB
+run 02/10: total=118.389 ms, throughput=33.787 structures/s, per_structure=29.597 ms, peak_mem=617.80 MB
+run 03/10: total=117.648 ms, throughput=34.000 structures/s, per_structure=29.412 ms, peak_mem=617.80 MB
+run 04/10: total=122.752 ms, throughput=32.586 structures/s, per_structure=30.688 ms, peak_mem=617.80 MB
+run 05/10: total=123.400 ms, throughput=32.415 structures/s, per_structure=30.850 ms, peak_mem=617.80 MB
+run 06/10: total=117.290 ms, throughput=34.104 structures/s, per_structure=29.322 ms, peak_mem=617.80 MB
+run 07/10: total=117.477 ms, throughput=34.049 structures/s, per_structure=29.369 ms, peak_mem=617.80 MB
+run 08/10: total=117.464 ms, throughput=34.053 structures/s, per_structure=29.366 ms, peak_mem=617.80 MB
+run 09/10: total=118.254 ms, throughput=33.825 structures/s, per_structure=29.564 ms, peak_mem=617.80 MB
+run 10/10: total=116.852 ms, throughput=34.231 structures/s, per_structure=29.213 ms, peak_mem=617.80 MB
+
+=== Benchmark task=efs, batch_size=8 ===
+run 01/10: total=137.024 ms, throughput=58.384 structures/s, per_structure=17.128 ms, peak_mem=1159.51 MB
+run 02/10: total=136.509 ms, throughput=58.604 structures/s, per_structure=17.064 ms, peak_mem=1159.51 MB
+run 03/10: total=138.971 ms, throughput=57.566 structures/s, per_structure=17.371 ms, peak_mem=1159.51 MB
+run 04/10: total=136.630 ms, throughput=58.552 structures/s, per_structure=17.079 ms, peak_mem=1159.51 MB
+run 05/10: total=135.445 ms, throughput=59.064 structures/s, per_structure=16.931 ms, peak_mem=1159.51 MB
+run 06/10: total=140.472 ms, throughput=56.951 structures/s, per_structure=17.559 ms, peak_mem=1159.51 MB
+run 07/10: total=137.684 ms, throughput=58.104 structures/s, per_structure=17.210 ms, peak_mem=1159.51 MB
+run 08/10: total=137.033 ms, throughput=58.380 structures/s, per_structure=17.129 ms, peak_mem=1159.51 MB
+run 09/10: total=133.621 ms, throughput=59.871 structures/s, per_structure=16.703 ms, peak_mem=1159.51 MB
+run 10/10: total=137.043 ms, throughput=58.376 structures/s, per_structure=17.130 ms, peak_mem=1159.51 MB
+
+=== Summary ===
+task=e, batch=1: mean_total=57.296 ms, std_total=5.131 ms, mean_throughput=17.566 structures/s, std_throughput=1.396 structures/s, mean_per_structure=57.296 ms, peak_mem=186.23 MB
+task=e, batch=2: mean_total=65.849 ms, std_total=4.127 ms, mean_throughput=30.470 structures/s, std_throughput=1.730 structures/s, mean_per_structure=32.924 ms, peak_mem=324.22 MB
+task=e, batch=4: mean_total=61.332 ms, std_total=5.354 ms, mean_throughput=65.620 structures/s, std_throughput=5.110 structures/s, mean_per_structure=15.333 ms, peak_mem=609.53 MB
+task=e, batch=8: mean_total=81.984 ms, std_total=5.324 ms, mean_throughput=97.928 structures/s, std_throughput=5.959 structures/s, mean_per_structure=10.248 ms, peak_mem=1151.33 MB
+task=ef, batch=1: mean_total=118.015 ms, std_total=7.227 ms, mean_throughput=8.500 structures/s, std_throughput=0.482 structures/s, mean_per_structure=118.015 ms, peak_mem=194.36 MB
+task=ef, batch=2: mean_total=125.709 ms, std_total=6.400 ms, mean_throughput=15.944 structures/s, std_throughput=0.757 structures/s, mean_per_structure=62.854 ms, peak_mem=331.94 MB
+task=ef, batch=4: mean_total=120.117 ms, std_total=4.415 ms, mean_throughput=33.340 structures/s, std_throughput=1.174 structures/s, mean_per_structure=30.029 ms, peak_mem=617.78 MB
+task=ef, batch=8: mean_total=144.745 ms, std_total=9.358 ms, mean_throughput=55.477 structures/s, std_throughput=3.557 structures/s, mean_per_structure=18.093 ms, peak_mem=1159.45 MB
+task=efs, batch=1: mean_total=115.934 ms, std_total=4.659 ms, mean_throughput=8.637 structures/s, std_throughput=0.328 structures/s, mean_per_structure=115.934 ms, peak_mem=194.36 MB
+task=efs, batch=2: mean_total=127.198 ms, std_total=6.057 ms, mean_throughput=15.754 structures/s, std_throughput=0.708 structures/s, mean_per_structure=63.599 ms, peak_mem=331.94 MB
+task=efs, batch=4: mean_total=120.333 ms, std_total=5.268 ms, mean_throughput=33.294 structures/s, std_throughput=1.355 structures/s, mean_per_structure=30.083 ms, peak_mem=617.80 MB
+task=efs, batch=8: mean_total=137.043 ms, std_total=1.844 ms, mean_throughput=58.385 structures/s, std_throughput=0.785 structures/s, mean_per_structure=17.130 ms, peak_mem=1159.51 MB
