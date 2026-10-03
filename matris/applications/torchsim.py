@@ -63,8 +63,6 @@ class MatRISTorchSimModel(ModelInterface):
     def compute_stress(self) -> bool:
         return "s" in self.target
 
-    @torch.inference_mode(False)
-    @torch.enable_grad()
     def forward(self, state: SimState, **kwargs) -> dict[str, torch.Tensor]:
         """Build each system's graph on-device, then evaluate the batch once."""
         if state.device != self.device or state.dtype != self.dtype:
