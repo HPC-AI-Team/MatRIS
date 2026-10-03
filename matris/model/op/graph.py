@@ -75,8 +75,6 @@ __global__ void prepare_kernel(const int *edges, const int *ptr, const int *imag
     if (center >= na)
         return;
     int begin = ptr[center], end = ptr[center + 1];
-    if (begin == end && lane == 0)
-        atomicOr(status, 1);
     int nrep = 0, nle = 0, nlt = 0;
     for (int base = begin; base < end; base += 32) {
         int e = base + lane, rev = -1;
@@ -305,7 +303,10 @@ def build_graph_tensors_gpu(edges, ptr, images, distances, *, line_cutoff):
     allocate its variable-length line tensor; neighbor/graph arrays stay on GPU.
     """
     if edges.shape[1] == 0:
-        raise ValueError("Error: Detected isolated atom. Calculation stopped")
+        return (
+            edges.t().contiguous(), edges.new_empty(0),
+            edges.new_empty(0), edges.new_empty((0, 5)),
+        )
     extension = get_extension()
     reverse, d2u, rep_prefix, line_prefix, status = extension.prepare(
         edges, ptr, images, distances, float(line_cutoff)
@@ -315,8 +316,6 @@ def build_graph_tensors_gpu(edges, ptr, images, distances, *, line_cutoff):
     error, nundirected, nline = torch.stack(
         (status[0].to(torch.int64), rep_prefix[-1].to(torch.int64), line_prefix[-1])
     ).tolist()
-    if error & 1:
-        raise ValueError("Error: Detected isolated atom. Calculation stopped")
     if error & 2 or 2 * nundirected != edges.shape[1]:
         raise ValueError("Periodic neighbor list is missing a reverse edge.")
     return tuple(

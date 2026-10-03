@@ -5,6 +5,7 @@ import unittest
 
 import numpy as np
 import torch
+from ase import Atoms
 from ase.build import bulk
 from ase.neighborlist import neighbor_list
 
@@ -14,6 +15,30 @@ from ase.neighborlist import neighbor_list
     "CUDA and nvalchemiops are required",
 )
 class TestGPUGraph(unittest.TestCase):
+    def test_isolated_and_periodic_atoms(self):
+        from matris.graph.converter import build_graph_tensors
+        from matris.model.op.graph import build_graph_tensors_gpu, gpu_neighbor_list
+
+        structures = [
+            Atoms("Si", positions=[[0, 0, 0]], cell=[40, 40, 40]),
+            Atoms("Si3", positions=[[0, 0, 0], [2.3, 0, 0], [20, 0, 0]], cell=[40, 40, 40]),
+            bulk("Al", "fcc", a=4.05),  # One atom with periodic neighbors is not isolated.
+        ]
+        for atoms in structures:
+            with self.subTest(natoms=len(atoms), pbc=atoms.pbc.tolist()):
+                edges, ptr, images, distances = gpu_neighbor_list(
+                    atoms.positions, atoms.cell.array, 6.0, device="cuda", pbc=atoms.pbc,
+                )
+                expected = build_graph_tensors(
+                    len(atoms), *edges.cpu().numpy(), images.cpu().numpy(),
+                    distances.cpu().numpy(), line_cutoff=4.0,
+                )
+                actual = build_graph_tensors_gpu(edges, ptr, images, distances, line_cutoff=4.0)
+                for result, reference in zip(actual, expected):
+                    torch.testing.assert_close(result.cpu(), reference)
+                if atoms.pbc.all():
+                    self.assertGreater(edges.shape[1], 0)
+
     def test_dense_periodic_neighbors(self):
         from matris.model.op.graph import gpu_neighbor_list
 

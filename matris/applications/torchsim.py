@@ -18,7 +18,7 @@ class MatRISTorchSimModel(ModelInterface):
     The fast operators use float32. Non-periodic molecules receive an internal
     computational cell and zero stress; the input state is never modified.
     Missing non-periodic cell vectors are completed internally.
-    Isolated atoms retain MatRIS's existing unsupported-input error.
+    Isolated atoms retain the model's atomic energy prediction and have zero force.
     Outputs are detached for simulation; differentiable trajectories are not supported.
     """
 

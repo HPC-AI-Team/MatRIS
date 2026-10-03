@@ -16,9 +16,6 @@ def build_graph_tensors(natoms, centers, neighbors, images, distances, *, line_c
     neighbors = np.asarray(neighbors, dtype=np.int64)
     images = np.asarray(images, dtype=np.int64)
     distances = np.asarray(distances)
-    if np.any(np.bincount(centers, minlength=natoms) == 0):
-        raise ValueError("Error: Detected isolated atom. Calculation stopped")
-
     keys = np.column_stack((centers, neighbors, images))
     reverse_keys = np.column_stack((neighbors, centers, -images))
     order = np.lexsort(keys[:, ::-1].T)
