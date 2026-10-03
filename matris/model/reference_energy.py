@@ -44,12 +44,12 @@ class AtomRef(nn.Module):
         for graph in graphs:
             composition_fea = torch.bincount(
                 graph.atomic_number - 1, minlength=self.max_num_elements
-            )
+            ).to(self.fc.weight.dtype)
             if self.is_intensive:
                 n_atom = graph.atomic_number.shape[0]
                 composition_fea = composition_fea / n_atom
             composition_feas.append(composition_fea)
-        composition_feas = torch.stack(composition_feas, dim=0).float()
+        composition_feas = torch.stack(composition_feas, dim=0)
          
         ref_energy = self.fc(composition_feas).view(-1) 
         return ref_energy
@@ -103,16 +103,23 @@ class AtomRef(nn.Module):
 
     def initialize_from(self, dataset: str):
         """Initialize pre-fitted weights from a dataset."""
-        dataset = dataset.lower()
-        if dataset in ["mptrj", "demo"]:
+        if dataset is None:
+            # Keep default nn.Linear initialization.
+            return
+        dataset = str(dataset).lower()
+        if dataset == "mptrj":
             self.initialize_from_MPtrj()
-        elif dataset in ["omat"]:
+        elif dataset == "omat":
             self.initialize_from_OMat()
-        elif dataset in ["mpa"]:
-            self.initialize_from_MPA() 
+        elif dataset == "mpa":
+            self.initialize_from_MPA()
         else:
-            raise NotImplementedError(f"{dataset=} not supported yet")
-    
+            raise ValueError(
+                f"No fitted reference energies for {dataset!r}. "
+                "Load a checkpoint containing reference_energy.fc.weight, "
+                "or use AtomRef().fit(...) to fit a new reference."
+            )
+
     def initialize_from_MPtrj(self):
         """Initialize refernece energy of MPtrj(uncorrected energy)."""
         state_dict = collections.OrderedDict()
@@ -205,4 +212,3 @@ class AtomRef(nn.Module):
         self.fc.load_state_dict(state_dict)
         self.is_intensive = True
         self.fitted = True
-        

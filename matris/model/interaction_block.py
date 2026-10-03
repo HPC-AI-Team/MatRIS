@@ -2,20 +2,26 @@ from __future__ import annotations
 
 import torch
 from torch import Tensor, nn
-from typing import Any, Dict
+from typing import Tuple, Dict, Literal
 from .functions import (
     MLP,
+    linear,
     GatedMLP,
     aggregate,
     get_normalization,
     Dimwise_softmax,
+    scale_res,
+    fused_attention,
+    fused_attention_with_residual,
+    attn_line_projection,
+    refine_line_projection,
+    directed_average,
+    refine_scatter,
+    refine_envelope_scatter,
 )
-from torch.utils.checkpoint import checkpoint
 
-THRESHOLD_VALUE = 60000 # Safe value for MatRIS-10M (A100-80GB)
 
 class Graph_Attention_Layer(nn.Module):
-    
     def __init__(
         self,
         node_feat_dim: int = 128,
@@ -23,18 +29,17 @@ class Graph_Attention_Layer(nn.Module):
         hidden_dim: int = 128,
         use_bias: bool = False,
         dropout: float = 0.0,
-        mlp_type: str = "GateMLP", # MLP, GateMLP
+        mlp_type: str = "GateMLP",  # MLP, GateMLP
         activation_type: str = "silu",
         norm_type: str = "layer",
-        use_fp16: bool = False, 
     ):
         super().__init__()
-        
+
         self.source_weight_linear = nn.Linear(
-            in_features = edge_feat_dim, out_features = edge_feat_dim, bias = False
+            in_features=edge_feat_dim, out_features=edge_feat_dim, bias=False
         )
         self.target_weight_linear = nn.Linear(
-            in_features = edge_feat_dim, out_features = edge_feat_dim, bias = False
+            in_features=edge_feat_dim, out_features=edge_feat_dim, bias=False
         )
         if mlp_type.lower() == "mlp":
             self.node_nonlinear_update = nn.Sequential(
@@ -46,7 +51,7 @@ class Graph_Attention_Layer(nn.Module):
                     bias=use_bias,
                     activation=activation_type,
                 ),
-                get_normalization(name=norm_type, dim=node_feat_dim) 
+                get_normalization(name=norm_type, dim=node_feat_dim),
             )
             self.edge_nonlinear_update = nn.Sequential(
                 MLP(
@@ -56,9 +61,8 @@ class Graph_Attention_Layer(nn.Module):
                     dropout=dropout,
                     bias=use_bias,
                     activation=activation_type,
-                    use_fp16=use_fp16,
                 ),
-                get_normalization(name=norm_type, dim=edge_feat_dim) 
+                get_normalization(name=norm_type, dim=edge_feat_dim),
             )
         elif mlp_type.lower() == "gatemlp":
             self.node_nonlinear_update = GatedMLP(
@@ -76,75 +80,191 @@ class Graph_Attention_Layer(nn.Module):
                 norm_type=norm_type,
                 dropout=dropout,
                 activation=activation_type,
-                use_fp16=use_fp16,
             )
         else:
             raise NotImplementedError
 
-        self.node_res_weight = torch.nn.Parameter(torch.ones(1, node_feat_dim), requires_grad=True)
-        self.edge_res_weight = torch.nn.Parameter(torch.ones(1, edge_feat_dim), requires_grad=True)
-    
-    def forward(self, 
-        node_feat: Tensor, 
-        edge_feat: Tensor, 
-        graph: Dict, # atom graph or line graph
+        self.node_res_weight = torch.nn.Parameter(
+            torch.ones(1, node_feat_dim), requires_grad=True
+        )
+        self.edge_res_weight = torch.nn.Parameter(
+            torch.ones(1, edge_feat_dim), requires_grad=True
+        )
+
+    def forward(
+        self,
+        node_feat: Tensor,
+        edge_feat: Tensor,
+        graph: Dict,  # atom graph or line graph
         directed2undirected: Tensor = None,
-    ): 
-        source_node_index = graph['source_index']
-        target_node_index = graph['target_index']
+        tf32: bool = False,
+        *,
+        fast: bool = False,
+        training: bool = True
+    ):
+        source_node_index = graph["source_index"]
+        target_node_index = graph["target_index"]
         # gather
-        source_node_feat = torch.index_select(node_feat, 0, source_node_index)
-        target_node_feat = torch.index_select(node_feat, 0, target_node_index)
         if directed2undirected is not None:
             # Atom Graph Update
-            edge_feat_0 = torch.index_select(edge_feat, 0, directed2undirected) # [edge, dim] -> [2*edge, dim]
+            edge_feat_0 = torch.index_select(
+                edge_feat, 0, directed2undirected
+            )  # [edge, dim] -> [2*edge, dim]
         else:
             # Line Graph Update
             edge_feat_0 = edge_feat
 
-        #======= combine feature =======
-        attn_edge_feat = torch.cat([edge_feat_0, target_node_feat, source_node_feat], dim=1)
-        attn_edge_feat = self.edge_nonlinear_update(attn_edge_feat)
+        # ======= combine feature =======
+        attn_edge_feat = None
+        if directed2undirected is None:
+            attn_edge_feat = attn_line_projection(
+                self.edge_nonlinear_update,
+                node_feat,
+                edge_feat_0,
+                source_node_index,
+                target_node_index,
+                tf32=tf32,
+                fast=fast,
+                training=training,
+            )
+        if attn_edge_feat is None:
+            source_node_feat = torch.index_select(node_feat, 0, source_node_index)
+            target_node_feat = torch.index_select(node_feat, 0, target_node_index)
+            attn_edge_feat = torch.cat(
+                [edge_feat_0, target_node_feat, source_node_feat], dim=1
+            )
+            if isinstance(self.edge_nonlinear_update, nn.Sequential):
+                attn_edge_feat = self.edge_nonlinear_update[1](
+                    self.edge_nonlinear_update[0](
+                        attn_edge_feat, tf32=tf32, fast=fast, training=training
+                    )
+                )
+            else:
+                attn_edge_feat = self.edge_nonlinear_update(
+                    attn_edge_feat, tf32=tf32, fast=fast, training=training
+                )
 
-        # ======= update atom feature ======= 
-        source_alpha_0 = self.source_weight_linear(edge_feat_0)
-        target_alpha_0 = self.target_weight_linear(edge_feat_0)
-        
+        # ======= update atom feature =======
+        source_alpha_0 = linear(
+            edge_feat_0,
+            self.source_weight_linear.weight,
+            self.source_weight_linear.bias,
+            tf32=tf32,
+            fast=fast,
+            training=training,
+        )
+        target_alpha_0 = linear(
+            edge_feat_0,
+            self.target_weight_linear.weight,
+            self.target_weight_linear.bias,
+            tf32=tf32,
+            fast=fast,
+            training=training,
+        )
+
         # Softmax
-        num_segment = None #torch.unique(source_node_index).numel()
-        source_alpha = Dimwise_softmax(source_alpha_0, source_node_index, num_segment)
-        target_alpha = Dimwise_softmax(target_alpha_0, target_node_index, num_segment)
-        
-        source_weight = source_alpha * attn_edge_feat # refer to sa_{ij} * e'_{ij} in MatRIS paper
-        target_weight = target_alpha * attn_edge_feat # refer to ta_{ij} * e'_{ij} in MatRIS paper
-        
+        num_segment = node_feat.shape[0]
+        attention_with_residual = None
+        if directed2undirected is None:
+            attention_with_residual = fused_attention_with_residual(
+                source_alpha_0,
+                target_alpha_0,
+                attn_edge_feat,
+                source_node_index,
+                target_node_index,
+                node_feat.shape[0],
+                edge_feat,
+                self.edge_res_weight,
+                layout=graph.get("softmax_layout"),
+                fast=fast,
+                training=training,
+            )
+        if attention_with_residual is None:
+            attention = fused_attention(
+                source_alpha_0,
+                target_alpha_0,
+                attn_edge_feat,
+                source_node_index,
+                target_node_index,
+                node_feat.shape[0],
+                layout=graph.get("softmax_layout"),
+                fast=fast,
+            )
+        else:
+            attention = None
+        if attention is None:
+            if attention_with_residual is None:
+                source_alpha = Dimwise_softmax(
+                    source_alpha_0, source_node_index, num_segment, fast=fast
+                )
+                target_alpha = Dimwise_softmax(
+                    target_alpha_0, target_node_index, num_segment, fast=fast
+                )
+
+                source_weight = (
+                    source_alpha * attn_edge_feat
+                )  # refer to sa_{ij} * e'_{ij} in MatRIS paper
+                target_weight = (
+                    target_alpha * attn_edge_feat
+                )  # refer to ta_{ij} * e'_{ij} in MatRIS paper
+
+                # Compute Attention output
+                attn_source_feat = aggregate(
+                    data=source_weight,
+                    segment=source_node_index,
+                    bin_count=graph["source_bincount"],  # bincount_source,
+                    average=False,
+                    num_segment=node_feat.shape[0],
+                )
+
+                attn_target_feat = aggregate(
+                    data=target_weight,
+                    segment=target_node_index,
+                    bin_count=graph["target_bincount"],  # bincount_target,
+                    average=False,
+                    num_segment=node_feat.shape[0],
+                )
+            else:
+                (
+                    attn_source_feat,
+                    attn_target_feat,
+                    attn_edge_feat,
+                ) = attention_with_residual
+        else:
+            attn_source_feat, attn_target_feat = attention
+
         if directed2undirected is not None:
-            attn_edge_feat = aggregate(data=attn_edge_feat, segment=directed2undirected, bin_count=None, average=True, num_segment=None) #[2*edge, dim] -> [edge, dim]
-        # Compute Attention output
-        attn_source_feat = aggregate(data=source_weight, 
-                                     segment=source_node_index, 
-                                     bin_count=graph['source_bincount'],#bincount_source, 
-                                     average=False, 
-                                     num_segment=len(node_feat)) 
+            attn_edge_feat = directed_average(
+                attn_edge_feat, directed2undirected, edge_feat.shape[0], fast=fast
+            )
 
-        attn_target_feat = aggregate(data=target_weight, 
-                                     segment=target_node_index, 
-                                     bin_count=graph['target_bincount'],#bincount_target, 
-                                     average=False, 
-                                     num_segment=len(node_feat)) 
+        fusion_node_feat = torch.cat(
+            [node_feat, attn_target_feat, attn_source_feat], dim=1
+        )
+        if isinstance(self.node_nonlinear_update, nn.Sequential):
+            attn_node_feat = self.node_nonlinear_update[1](
+                self.node_nonlinear_update[0](
+                    fusion_node_feat, tf32=tf32, fast=fast, training=training
+                )
+            )
+        else:
+            attn_node_feat = self.node_nonlinear_update(
+                fusion_node_feat, tf32=tf32, fast=fast, training=training
+            )
 
-        fusion_node_feat = torch.cat([node_feat, attn_target_feat, attn_source_feat], dim=1)
-        attn_node_feat = self.node_nonlinear_update(fusion_node_feat)
-        
         # Resdual
-        attn_node_feat = attn_node_feat + self.node_res_weight * node_feat
-        attn_edge_feat = attn_edge_feat + self.edge_res_weight * edge_feat
+        attn_node_feat = scale_res(
+            attn_node_feat, node_feat, self.node_res_weight, fast=fast
+        )
+        if attention_with_residual is None:
+            attn_edge_feat = scale_res(
+                attn_edge_feat, edge_feat, self.edge_res_weight, fast=fast
+            )
 
         return attn_node_feat, attn_edge_feat
 
 
 class Refinement(nn.Module):
-    
     def __init__(
         self,
         node_feat_dim: int = 128,
@@ -152,23 +272,22 @@ class Refinement(nn.Module):
         hidden_dim: int = 128,
         num_basis: int = 7,
         dropout: float = 0.0,
-        mlp_type: str = "GateMLP",    
+        mlp_type: str = "GateMLP",
         activation_type: str = "silu",
         norm_type: str = "layer",
         use_bias: bool = False,
         graph_type: Literal["atom graph", "line graph"] = "atom graph",
         atom_feat_dim: int = 128,
         use_smoothed_for_delta_edge: bool = False,
-        use_fp16: bool = False, 
     ):
         super().__init__()
         self.graph_type = graph_type
         self.use_smoothed_for_delta_edge = use_smoothed_for_delta_edge
-        
+
         if graph_type == "atom graph":
             input_dim = 2 * node_feat_dim + edge_feat_dim
         else:
-            input_dim = atom_feat_dim + 2 * node_feat_dim + edge_feat_dim 
+            input_dim = atom_feat_dim + 2 * node_feat_dim + edge_feat_dim
         if mlp_type.lower() == "mlp":
             self.edge_nonlinear_update = nn.Sequential(
                 MLP(
@@ -178,9 +297,8 @@ class Refinement(nn.Module):
                     dropout=dropout,
                     bias=use_bias,
                     activation=activation_type,
-                    use_fp16=use_fp16,
                 ),
-                get_normalization(name=norm_type, dim=edge_feat_dim)
+                get_normalization(name=norm_type, dim=edge_feat_dim),
             )
         elif mlp_type.lower() == "gatemlp":
             self.edge_nonlinear_update = GatedMLP(
@@ -190,11 +308,10 @@ class Refinement(nn.Module):
                 dropout=dropout,
                 norm_type=norm_type,
                 activation=activation_type,
-                use_fp16=use_fp16,
             )
         else:
             raise NotImplementedError
-        
+
         self.node_FFN = MLP(
             input_dim=edge_feat_dim,
             hidden_dim=node_feat_dim,
@@ -206,14 +323,17 @@ class Refinement(nn.Module):
             hidden_dim=edge_feat_dim,
             output_dim=edge_feat_dim,
             bias=use_bias,
-            use_fp16=use_fp16,
         )
         self.learnable_envelope = nn.Linear(
-            in_features = num_basis, out_features = edge_feat_dim, bias = False
+            in_features=num_basis, out_features=edge_feat_dim, bias=False
         )
-        
-        self.node_res_weight = torch.nn.Parameter(torch.ones(1, node_feat_dim), requires_grad=True)
-        self.edge_res_weight = torch.nn.Parameter(torch.ones(1, edge_feat_dim), requires_grad=True)
+
+        self.node_res_weight = torch.nn.Parameter(
+            torch.ones(1, node_feat_dim), requires_grad=True
+        )
+        self.edge_res_weight = torch.nn.Parameter(
+            torch.ones(1, edge_feat_dim), requires_grad=True
+        )
 
     def forward(
         self,
@@ -222,286 +342,317 @@ class Refinement(nn.Module):
         smooth_weight: Tensor,
         graph: Dict,
         directed2undirected: Tensor = None,
-        atom_feat: Tensor = None, # Line graph
+        atom_feat: Tensor = None,  # Line graph
+        tf32: bool = False,
+        *,
+        fast: bool = False,
+        training: bool = True
     ) -> Tensor:
         # Gather
         # when graph=="line graph", make sure atom_deat is not None.
-        is_atom_graph = (self.graph_type == "atom graph")
-        
-        if is_atom_graph: 
-            edge_feat_0 = torch.index_select(edge_feat, 0, directed2undirected) 
+        is_atom_graph = self.graph_type == "atom graph"
+
+        if is_atom_graph:
+            edge_feat_0 = torch.index_select(edge_feat, 0, directed2undirected)
         else:
             edge_feat_0 = edge_feat
 
-        source_node_feat = torch.index_select(node_feat, 0, graph['source_index'])
-        target_node_feat = torch.index_select(node_feat, 0, graph['target_index'])
-        # Envelope 
+        # Envelope
         if is_atom_graph:
+            source_node_feat = torch.index_select(node_feat, 0, graph["source_index"])
+            target_node_feat = torch.index_select(node_feat, 0, graph["target_index"])
             smooth_weight = torch.index_select(smooth_weight, 0, directed2undirected)
-            smooth_weight = self.learnable_envelope(smooth_weight)
+            smooth_weight = linear(
+                smooth_weight,
+                self.learnable_envelope.weight,
+                self.learnable_envelope.bias,
+                tf32=tf32,
+                fast=fast,
+                training=training,
+            )
             # Fusion feature
-            refine_fusion_feat = torch.cat([edge_feat_0, target_node_feat, source_node_feat], dim=1) 
+            refine_fusion_feat = torch.cat(
+                [edge_feat_0, target_node_feat, source_node_feat], dim=1
+            )
+            refine_fusion_feat_nonlinear = None
         else:
-            base_envelope = self.learnable_envelope(smooth_weight) 
-            base_weights_i = torch.index_select(base_envelope, 0, graph['source_index'])
-            base_weights_j = torch.index_select(base_envelope, 0, graph['target_index'])
+            base_envelope = linear(
+                smooth_weight,
+                self.learnable_envelope.weight,
+                self.learnable_envelope.bias,
+                tf32=tf32,
+                fast=fast,
+                training=training,
+            )
+            smooth_weight = None
+            refine_fusion_feat_nonlinear = refine_line_projection(
+                self.edge_nonlinear_update,
+                edge_feat_0,
+                atom_feat,
+                node_feat,
+                graph["atom_list"],
+                graph["source_index"],
+                graph["target_index"],
+                tf32=tf32,
+                fast=fast,
+                training=training,
+            )
+            if refine_fusion_feat_nonlinear is None:
+                source_node_feat = torch.index_select(
+                    node_feat, 0, graph["source_index"]
+                )
+                target_node_feat = torch.index_select(
+                    node_feat, 0, graph["target_index"]
+                )
+                three_body_atom_feat = torch.index_select(
+                    atom_feat, 0, graph["atom_list"]
+                )
+                refine_fusion_feat = torch.cat(
+                    [
+                        edge_feat_0,
+                        three_body_atom_feat,
+                        target_node_feat,
+                        source_node_feat,
+                    ],
+                    dim=1,
+                )
+
+        # Nonlinear
+        if refine_fusion_feat_nonlinear is None:
+            if isinstance(self.edge_nonlinear_update, nn.Sequential):
+                refine_fusion_feat_nonlinear = self.edge_nonlinear_update[1](
+                    self.edge_nonlinear_update[0](
+                        refine_fusion_feat, tf32=tf32, fast=fast, training=training
+                    )
+                )
+            else:
+                refine_fusion_feat_nonlinear = self.edge_nonlinear_update(
+                    refine_fusion_feat, tf32=tf32, fast=fast, training=training
+                )
+        refine_node_feas = None
+        if not is_atom_graph:
+            refine_node_feas = refine_envelope_scatter(
+                refine_fusion_feat_nonlinear,
+                base_envelope,
+                graph["source_index"],
+                graph["target_index"],
+                node_feat.shape[0],
+                layout=(
+                    graph["softmax_layout"][1] if "softmax_layout" in graph else None
+                ),
+                fast=fast,
+            )
+        skip_unused_line_smooth = not is_atom_graph and refine_node_feas is not None
+        if not is_atom_graph and smooth_weight is None and not skip_unused_line_smooth:
+            base_weights_i = torch.index_select(base_envelope, 0, graph["source_index"])
+            base_weights_j = torch.index_select(base_envelope, 0, graph["target_index"])
             smooth_weight = base_weights_i * base_weights_j
-            # Fusion feature
-            three_body_atom_feat = torch.index_select(atom_feat, 0, graph['atom_list'])
-            refine_fusion_feat = torch.cat([edge_feat_0, three_body_atom_feat, target_node_feat, source_node_feat], dim=1) 
-        
-        # Nonlinear            
-        refine_fusion_feat_nonlinear = self.edge_nonlinear_update(refine_fusion_feat)
-        refine_fusion_feat_smooth = refine_fusion_feat_nonlinear * smooth_weight 
-         
-        refine_node_feas = aggregate(refine_fusion_feat_smooth, 
-                                     graph['target_index'], 
-                                     graph['target_bincount'],
-                                     average=False, 
-                                     num_segment=len(node_feat))
+        if not is_atom_graph and refine_node_feas is None:
+            refine_node_feas = refine_scatter(
+                refine_fusion_feat_nonlinear,
+                smooth_weight,
+                graph["target_index"],
+                node_feat.shape[0],
+                fast=fast,
+            )
+        if refine_node_feas is None:
+            refine_fusion_feat_smooth = refine_fusion_feat_nonlinear * smooth_weight
+            refine_node_feas = aggregate(
+                refine_fusion_feat_smooth,
+                graph["target_index"],
+                graph["target_bincount"],
+                average=False,
+                num_segment=node_feat.shape[0],
+            )
 
         input2edgeFFN = (
             refine_fusion_feat_smooth
             if is_atom_graph and self.use_smoothed_for_delta_edge
             else refine_fusion_feat_nonlinear
         )
-        
-        delta_node_feat = self.node_FFN(refine_node_feas)
-        delta_edge_feat = self.edge_FFN(input2edgeFFN)
-        
-        if is_atom_graph:  
-            delta_edge_feat = aggregate(data=delta_edge_feat, segment=directed2undirected, bin_count=None, average=True, num_segment=None) # [2*edge, dim] -> [edge, dim]
 
-        update_node_feat = delta_node_feat + self.node_res_weight * node_feat
-        update_edge_feat = delta_edge_feat + self.edge_res_weight * edge_feat
-        
+        delta_node_feat = self.node_FFN(
+            refine_node_feas, tf32=tf32, fast=fast, training=training
+        )
+        delta_edge_feat = self.edge_FFN(
+            input2edgeFFN, tf32=tf32, fast=fast, training=training
+        )
+
+        if is_atom_graph:
+            delta_edge_feat = directed_average(
+                delta_edge_feat, directed2undirected, edge_feat.shape[0], fast=fast
+            )
+
+        update_node_feat = scale_res(
+            delta_node_feat, node_feat, self.node_res_weight, fast=fast
+        )
+        update_edge_feat = scale_res(
+            delta_edge_feat, edge_feat, self.edge_res_weight, fast=fast
+        )
+
         return update_node_feat, update_edge_feat
 
 
 class Interaction_Block(nn.Module):
     """
     Interaction Block for MatRIS that processes both atom graphs and line graphs.
-    
+
     This block performs attention-based message passing and refinement on two hierarchical graph structures:
     1. Atom graph: Nodes represent atoms, edges represent bonds
     2. Line graph: Nodes represent bonds, edges represent three-body interactions (angles)
-    
+
     Attributes:
         attn_block_atom_graph (Graph_Attention_Layer): Attention layer for atom graph
         attn_block_line_graph (Graph_Attention_Layer): Attention layer for line graph
-        refine_block_atom_graph (Refinement): Refinement layer for atom graph  
+        refine_block_atom_graph (Refinement): Refinement layer for atom graph
         refine_block_line_graph (Refinement): Refinement layer for line graph
     """
-    
-    def __init__(self,
-                 node_feat_dim: int = 128,
-                 edge_feat_dim: int = 128,
-                 three_body_feat_dim: int = 128,
-                 num_radial: int = 7,
-                 num_angular: int = 7,
-                 dropout: float = 0.0, 
-                 use_bias: bool = False,
-                 use_smoothed_for_delta_edge: bool = False,
-                 mlp_type: str = "GateMLP",
-                 norm_type: str = "layer",
-                 activation_type: str = "silu",
-                 ):
+
+    def __init__(
+        self,
+        node_feat_dim: int = 128,
+        edge_feat_dim: int = 128,
+        three_body_feat_dim: int = 128,
+        num_radial: int = 7,
+        num_angular: int = 7,
+        dropout: float = 0.0,
+        use_bias: bool = False,
+        use_smoothed_for_delta_edge: bool = False,
+        mlp_type: str = "GateMLP",
+        norm_type: str = "layer",
+        activation_type: str = "silu",
+    ):
         """
         Initialize the Interaction Block.
 
         Args:
             node_feat_dim (int): Dimension of node features (atom features)
-            edge_feat_dim (int): Dimension of edge features (bond features)  
+            edge_feat_dim (int): Dimension of edge features (bond features)
             three_body_feat_dim (int): Dimension of three-body features (angle features)
             mlp_type (str): Type of MLP to use in the layers
             norm_type (str): Type of normalization to apply
             activation_type (str): Type of activation function to use
         """
         super().__init__()
-        
+
         self.attn_block_atom_graph = Graph_Attention_Layer(
-                node_feat_dim=node_feat_dim,
-                edge_feat_dim=edge_feat_dim,
-                hidden_dim=node_feat_dim,
-                use_bias=use_bias,
-                mlp_type=mlp_type,
-                norm_type=norm_type,
-                activation_type=activation_type,
-            )
+            node_feat_dim=node_feat_dim,
+            edge_feat_dim=edge_feat_dim,
+            hidden_dim=node_feat_dim,
+            use_bias=use_bias,
+            mlp_type=mlp_type,
+            norm_type=norm_type,
+            activation_type=activation_type,
+        )
 
         self.attn_block_line_graph = Graph_Attention_Layer(
-                node_feat_dim=edge_feat_dim,
-                edge_feat_dim=three_body_feat_dim,
-                hidden_dim=edge_feat_dim,
-                use_bias=use_bias,
-                mlp_type=mlp_type,
-                norm_type=norm_type,
-                activation_type=activation_type,
-                use_fp16=False,
-            )
-        
+            node_feat_dim=edge_feat_dim,
+            edge_feat_dim=three_body_feat_dim,
+            hidden_dim=edge_feat_dim,
+            use_bias=use_bias,
+            mlp_type=mlp_type,
+            norm_type=norm_type,
+            activation_type=activation_type,
+        )
+
         self.refine_block_atom_graph = Refinement(
-                node_feat_dim=node_feat_dim,
-                edge_feat_dim=edge_feat_dim,
-                hidden_dim=node_feat_dim,  
-                num_basis=num_radial,      
-                dropout=dropout,            
-                activation_type=activation_type,
-                norm_type=norm_type,
-                use_bias=use_bias,
-                mlp_type=mlp_type,
-                graph_type="atom graph",
-                use_smoothed_for_delta_edge=use_smoothed_for_delta_edge,
-            )
-        
+            node_feat_dim=node_feat_dim,
+            edge_feat_dim=edge_feat_dim,
+            hidden_dim=node_feat_dim,
+            num_basis=num_radial,
+            dropout=dropout,
+            activation_type=activation_type,
+            norm_type=norm_type,
+            use_bias=use_bias,
+            mlp_type=mlp_type,
+            graph_type="atom graph",
+            use_smoothed_for_delta_edge=use_smoothed_for_delta_edge,
+        )
+
         self.refine_block_line_graph = Refinement(
-                node_feat_dim=edge_feat_dim,
-                edge_feat_dim=three_body_feat_dim,
-                hidden_dim=edge_feat_dim,  
-                num_basis=num_angular,     
-                dropout=dropout,          
-                activation_type=activation_type,
-                norm_type=norm_type,
-                use_bias=use_bias,
-                mlp_type=mlp_type,
-                graph_type="line graph",
-                atom_feat_dim=node_feat_dim,
-                use_fp16=False, 
-            )
-    
+            node_feat_dim=edge_feat_dim,
+            edge_feat_dim=three_body_feat_dim,
+            hidden_dim=edge_feat_dim,
+            num_basis=num_angular,
+            dropout=dropout,
+            activation_type=activation_type,
+            norm_type=norm_type,
+            use_bias=use_bias,
+            mlp_type=mlp_type,
+            graph_type="line graph",
+            atom_feat_dim=node_feat_dim,
+        )
+
     def forward(
         self,
         batch_graph: Dict,
-        node_feat: Tensor, 
-        edge_feat: Tensor, 
-        threebody_feat: Tensor | None,
+        node_feat: Tensor,
+        edge_feat: Tensor,
+        threebody_feat: Tensor,
         smooth_weight: Tensor,
+        tf32: bool = False,
+        *,
+        fast: bool = False,
+        training: bool = True
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """Forward pass of the Interaction Block.
-        
+
         Args:
             batch_graph: Graph object containing:
                 - atom_graph_dict: Atom graph structure
-                - line_graph_dict: Bond graph (line graph) structure  
+                - line_graph_dict: Bond graph (line graph) structure
                 - directed2undirected: Mapping from directed to undirected edges
                 - bond_bases_bg: Smooth weights for bond graph
                 - bond_bases_ag: Smooth weights for atom graph
             node_feat (Tensor): Node features [num_atoms, node_feat_dim]
-            edge_feat (Tensor): Edge features [num_bonds, edge_feat_dim] 
-            threebody_feat (Tensor): Three-body features [num_angles, three_body_feat_dim] or None
+            edge_feat (Tensor): Edge features [num_bonds, edge_feat_dim]
+            threebody_feat (Tensor): Three-body features [num_angles, three_body_feat_dim]
             bincount_atom_graph (Dict): Bincount information for atom graph
             bincount_line_graph (Dict): Bincount information for line graph
         """
-        # Initialize variables to handle both cases (with and without threebody features)
-        attn_edge_feat = edge_feat 
-        attn_threebody_feat = threebody_feat
-        update_edge_feat = edge_feat
-        update_threebody_feat = threebody_feat 
-        use_checkpoint = (
-            isinstance(threebody_feat, torch.Tensor)
-            and threebody_feat.shape[0] > THRESHOLD_VALUE
+        # Empty angles have zero messages, but retain learned node updates.
+        line_fast = fast and threebody_feat.shape[0] != 0
+        attn_edge_feat, attn_threebody_feat = self.attn_block_line_graph(
+            node_feat=edge_feat,
+            edge_feat=threebody_feat,
+            graph=batch_graph["line_graph_dict"],
+            tf32=tf32,
+            fast=line_fast,
+            training=training,
         )
-
-        # Process line graph (bond graph) with attention if threebody features exist
-        if threebody_feat is not None: 
-            attn_edge_feat, attn_threebody_feat = self.wrapper_attn_layer(
-                attn_layer=self.attn_block_line_graph,
-                node_feat=edge_feat,
-                edge_feat=threebody_feat,
-                graph=batch_graph['line_graph_dict'],
-                use_checkpoint=use_checkpoint, 
-            )
 
         # Process atom graph with attention
-        attn_node_feat, attn_edge_feat = self.wrapper_attn_layer(
-            attn_layer=self.attn_block_atom_graph,
-            node_feat=node_feat, 
-            edge_feat=attn_edge_feat, 
-            graph=batch_graph['atom_graph_dict'], 
-            directed2undirected=batch_graph['directed2undirected'],
-        ) 
-        
-        # Refine line graph features if threebody features exist
-        if threebody_feat is not None:
-            update_edge_feat, update_threebody_feat = self.wrapper_refine_layer(
-                refine_layer=self.refine_block_line_graph,
-                node_feat=attn_edge_feat,
-                edge_feat=attn_threebody_feat,
-                smooth_weight=smooth_weight['line graph'],
-                graph=batch_graph['line_graph_dict'],
-                atom_feat=attn_node_feat,
-                use_checkpoint=use_checkpoint,
-            )
-        
+        attn_node_feat, attn_edge_feat = self.attn_block_atom_graph(
+            node_feat=node_feat,
+            edge_feat=attn_edge_feat,
+            graph=batch_graph["atom_graph_dict"],
+            directed2undirected=batch_graph["directed2undirected"],
+            tf32=tf32,
+            fast=fast,
+            training=training,
+        )
+
+        update_edge_feat, update_threebody_feat = self.refine_block_line_graph(
+            node_feat=attn_edge_feat,
+            edge_feat=attn_threebody_feat,
+            smooth_weight=smooth_weight["line graph"],
+            graph=batch_graph["line_graph_dict"],
+            atom_feat=attn_node_feat,
+            tf32=tf32,
+            fast=line_fast,
+            training=training,
+        )
+
         # Refine atom graph features
-        update_node_feat, update_edge_feat = self.wrapper_refine_layer(
-            refine_layer=self.refine_block_atom_graph,
+        update_node_feat, update_edge_feat = self.refine_block_atom_graph(
             node_feat=attn_node_feat,
             edge_feat=update_edge_feat,
-            smooth_weight=smooth_weight['atom graph'],
-            graph=batch_graph['atom_graph_dict'],
-            directed2undirected=batch_graph['directed2undirected'],
+            smooth_weight=smooth_weight["atom graph"],
+            graph=batch_graph["atom_graph_dict"],
+            directed2undirected=batch_graph["directed2undirected"],
+            tf32=tf32,
+            fast=fast,
+            training=training,
         )
-        
+
         return update_node_feat, update_edge_feat, update_threebody_feat
-    
-    def wrapper_attn_layer(self,
-                            attn_layer: nn.Module,
-                            node_feat: Tensor, 
-                            edge_feat: Tensor, 
-                            graph: Dict,
-                            directed2undirected: Tensor = None,
-                            use_checkpoint: bool = False,
-                       ):
-        if use_checkpoint:
-            attn_node_feat, attn_edge_feat = checkpoint(
-                attn_layer,
-                node_feat, 
-                edge_feat, 
-                graph,
-                directed2undirected,
-                use_reentrant=False,
-            ) 
-        else:
-            attn_node_feat, attn_edge_feat = attn_layer(
-                node_feat=node_feat, 
-                edge_feat=edge_feat, 
-                graph=graph,
-                directed2undirected=directed2undirected,
-            )
-        
-        return attn_node_feat, attn_edge_feat 
-        
-    def wrapper_refine_layer(self, 
-                            refine_layer: nn.Module,
-                            node_feat: Tensor,
-                            edge_feat: Tensor,
-                            smooth_weight: Tensor,
-                            graph: Dict,
-                            directed2undirected: Tensor = None,
-                            atom_feat: Tensor = None,
-                            use_checkpoint: bool = False,
-                        ):
-        if use_checkpoint:
-            update_node_feat, update_edge_feat = checkpoint(
-                refine_layer,
-                node_feat,
-                edge_feat,
-                smooth_weight,
-                graph,
-                directed2undirected,
-                atom_feat,
-                use_reentrant=False,
-            )
-        else:
-            update_node_feat, update_edge_feat = refine_layer(
-                    node_feat=node_feat,
-                    edge_feat=edge_feat,
-                    smooth_weight=smooth_weight,
-                    graph=graph,
-                    directed2undirected=directed2undirected,
-                    atom_feat=atom_feat,
-                )
-        return update_node_feat, update_edge_feat 
-        
-    

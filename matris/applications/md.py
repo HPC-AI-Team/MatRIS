@@ -1,44 +1,33 @@
-""" Modified from CHGNet: https://github.com/CederGroupHub/chgnet """
+"""Molecular dynamics, adapted from https://github.com/CederGroupHub/chgnet."""
+
 from __future__ import annotations
 
-import inspect
-import sys
-import io
-import contextlib
+import numpy as np
 from ase import Atoms, units
 from ase.io import Trajectory
-from ase.optimize.optimize import Optimizer
-import ase.filters as filter_classes
-from ase.filters import Filter
-from pymatgen.io.ase import AseAtomsAdaptor
-from pymatgen.core.structure import Structure, Molecule
-
+from ase.io.trajectory import TrajectoryWriter
 from ase.md.npt import NPT
 from ase.md.nptberendsen import Inhomogeneous_NPTBerendsen, NPTBerendsen
 from ase.md.nvtberendsen import NVTBerendsen
 from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary
 from ase.md.verlet import VelocityVerlet
+from pymatgen.core.structure import Molecule, Structure
+from pymatgen.io.ase import AseAtomsAdaptor
 
-from ..model.model import MatRIS
+from .base import MatRISCalculator
 
-from .base import (
-    OPTIMIZERS,
-    MatRISCalculator, 
-    TrajectoryObserver,
-    CrystalFeasObserver
-)
 
 class MolecularDynamics:
-    """This class is used for Molecular Dynamics."""
+    """Run ASE molecular dynamics with a MatRIS calculator."""
 
     def __init__(
         self,
-        atoms: Atoms | Structure,
+        atoms: Atoms | Structure | Molecule,
         model: str = "matris_10m_oam",
         ensemble: str = "nvt",
         thermostat: str = "Berendsen_inhomogeneous",
-        temperature: int = 300,
-        starting_temperature: int | None = None,
+        temperature: float = 300,
+        starting_temperature: float | None = None,
         timestep: float = 2.0,
         pressure: float = 1.01325e-4,
         taut: float | None = None,
@@ -47,17 +36,17 @@ class MolecularDynamics:
         trajectory: str | Trajectory | None = None,
         logfile: str | None = None,
         loginterval: int = 1,
-        crystal_feas_logfile: str | None = None,
         append_trajectory: bool = False,
         task: str = "efs",
         device: str | None = None,
+        mode: str = "fast",
+        activation_checkpoint: bool = False,
+        tf32: bool = False,
     ) -> None:
         """
         Args:
-            atoms (Atoms): atoms to run the MD
-            model (MatRIS): instance of a MatRIS model or MatRISCalculator.
-                If set to None, the pretrained MatRIS is loaded.
-                Default = None
+            atoms (Atoms | Structure | Molecule): Atomic configuration for MD.
+            model (str): Pretrained model name passed to MatRISCalculator.
             ensemble (str): choose from 'nve', 'nvt', 'npt'
                 Default = "nvt"
             thermostat (str): Thermostat to use
@@ -87,19 +76,33 @@ class MolecularDynamics:
                 Default = None
             loginterval (int): write to log file every interval steps
                 Default = 1
-            crystal_feas_logfile (str): open this file for recording crystal features
-                during MD. Default = None
             append_trajectory (bool): Whether to append to prev trajectory.
                 If false, previous trajectory gets overwritten
                 Default = False
             task (str): The prediction task. Can be 'e', 'em', 'ef', 'efs', 'efsm'.
-            device (str): the device for the MD run
-                Default = None
+            device (str): Model device; None selects CUDA when available, else CPU.
+            mode (str): 'fast' or 'torch'.
+            activation_checkpoint (bool): Activation checkpointing; disabled by default.
+            tf32 (bool): Permit TF32 for interaction-block FP32 GEMMs only.
         """
-        self.ensemble = ensemble
-        self.thermostat = thermostat
+        self.ensemble = ensemble = ensemble.lower()
+        self.thermostat = thermostat = thermostat.lower()
+        if ensemble not in ("nve", "nvt", "npt"):
+            raise ValueError("ensemble must be 'nve', 'nvt', or 'npt'")
+        if ensemble != "nve" and thermostat not in (
+            "nose-hoover",
+            "berendsen",
+            "berendsen_inhomogeneous",
+            "npt_berendsen",
+        ):
+            raise ValueError(
+                "thermostat must be 'Nose-Hoover', 'Berendsen', or "
+                "'Berendsen_inhomogeneous'"
+            )
+        if ensemble == "npt" and (bulk_modulus is None or bulk_modulus <= 0):
+            raise ValueError("NPT requires a positive bulk_modulus in GPa")
         if isinstance(atoms, (Structure, Molecule)):
-            atoms = AseAtomsAdaptor().get_atoms(atoms)
+            atoms = AseAtomsAdaptor.get_atoms(atoms)
 
         if starting_temperature is not None:
             MaxwellBoltzmannDistribution(
@@ -108,9 +111,12 @@ class MolecularDynamics:
             Stationary(atoms)
 
         self.atoms = atoms
-        
+
         self.atoms.calc = MatRISCalculator(
             model=model,
+            mode=mode,
+            activation_checkpoint=activation_checkpoint,
+            tf32=tf32,
             device=device,
             task=task,
         )
@@ -120,179 +126,57 @@ class MolecularDynamics:
         if taup is None:
             taup = 1000 * timestep
 
-        if ensemble.lower() == "nve":
-            """
-            VelocityVerlet (constant N, V, E) molecular dynamics.
-
-            Note: it's recommended to use smaller timestep for NVE compared to other
-            ensembles, since the VelocityVerlet algorithm assumes a strict conservative
-            force field.
-            """
-            self.dyn = VelocityVerlet(
-                atoms=self.atoms,
-                timestep=timestep * units.fs,
-                trajectory=trajectory,
-                logfile=logfile,
-                loginterval=loginterval,
-                append_trajectory=append_trajectory,
+        dynamics_kwargs = {
+            "atoms": self.atoms,
+            "timestep": timestep * units.fs,
+            "trajectory": trajectory,
+            "logfile": logfile,
+            "loginterval": loginterval,
+            "append_trajectory": append_trajectory,
+        }
+        if ensemble == "nve":
+            dynamics_type = VelocityVerlet
+        elif thermostat == "nose-hoover":
+            self.upper_triangular_cell()
+            dynamics_type = NPT
+            dynamics_kwargs.update(
+                temperature_K=temperature,
+                externalstress=pressure * units.GPa,
+                ttime=taut * units.fs,
+                pfactor=(
+                    (bulk_modulus * units.GPa * (taup * units.fs) ** 2)
+                    if ensemble == "npt"
+                    else None
+                ),
             )
-            print("NVE-MD created")
-
-        elif ensemble.lower() == "nvt":
-            """
-            Constant volume/temperature molecular dynamics.
-            """
-            if thermostat.lower() == "nose-hoover":
-                """
-                Nose-hoover (constant N, V, T) molecular dynamics.
-                ASE implementation currently only supports upper triangular lattice
-                """
-                self.upper_triangular_cell()
-                self.dyn = NPT(
-                    atoms=self.atoms,
-                    timestep=timestep * units.fs,
-                    temperature_K=temperature,
-                    externalstress=pressure
-                    * units.GPa,  # ase NPT does not like externalstress=None
-                    ttime=taut * units.fs,
-                    pfactor=None,
-                    trajectory=trajectory,
-                    logfile=logfile,
-                    loginterval=loginterval,
-                    append_trajectory=append_trajectory,
-                )
-                print("NVT-Nose-Hoover MD created")
-            elif thermostat.lower().startswith("berendsen"):
-                """
-                Berendsen (constant N, V, T) molecular dynamics.
-                """
-                self.dyn = NVTBerendsen(
-                    atoms=self.atoms,
-                    timestep=timestep * units.fs,
-                    temperature_K=temperature,
-                    taut=taut * units.fs,
-                    trajectory=trajectory,
-                    logfile=logfile,
-                    loginterval=loginterval,
-                    append_trajectory=append_trajectory,
-                )
-                print("NVT-Berendsen-MD created")
-            else:
-                raise ValueError(
-                    "Thermostat not supported, choose in 'Nose-Hoover', 'Berendsen', "
-                    "'Berendsen_inhomogeneous'"
-                )
-
-        elif ensemble.lower() == "npt":
-            """
-            Constant pressure/temperature molecular dynamics.
-            """
-            # Bulk modulus is needed for pressure damping time
-            if bulk_modulus is not None:
-                bulk_modulus_au = bulk_modulus * units.GPa  # GPa to eV/A^3
-                compressibility_au = 1 / bulk_modulus_au
-            else:
-                try:
-                    # Fit bulk modulus by equation of state
-                    eos = EquationOfState(model=self.atoms.calc)
-                    eos.fit(atoms=atoms, steps=500, fmax=0.1, verbose=False)
-                    bulk_modulus = eos.get_bulk_modulus(unit="GPa")
-                    bulk_modulus_au = eos.get_bulk_modulus(unit="eV/A^3")
-                    compressibility_au = eos.get_compressibility(unit="A^3/eV")
-                    print(
-                        f"Completed bulk modulus calculation: "
-                        f"k = {bulk_modulus:.3}GPa, {bulk_modulus_au:.3}eV/A^3"
-                    )
-                except Exception:
-                    bulk_modulus_au = 2 * units.GPa
-                    compressibility_au = 1 / bulk_modulus_au
-                    print(
-                        "Warning!!! Equation of State fitting failed, setting bulk "
-                        "modulus to 2 GPa. NPT simulation can proceed with incorrect "
-                        "pressure relaxation time."
-                        "User input for bulk modulus is recommended."
-                    )
+        elif ensemble == "nvt":
+            dynamics_type = NVTBerendsen
+            dynamics_kwargs.update(
+                temperature_K=temperature,
+                taut=taut * units.fs,
+            )
+        else:
+            dynamics_type = (
+                Inhomogeneous_NPTBerendsen
+                if thermostat == "berendsen_inhomogeneous"
+                else NPTBerendsen
+            )
+            dynamics_kwargs.update(
+                temperature_K=temperature,
+                pressure_au=pressure * units.GPa,
+                taut=taut * units.fs,
+                taup=taup * units.fs,
+                compressibility_au=1 / (bulk_modulus * units.GPa),
+            )
+        self._dynamics_kwargs = dynamics_kwargs
+        self.dyn = dynamics_type(**dynamics_kwargs)
+        if ensemble == "npt":
             self.bulk_modulus = bulk_modulus
 
-            if thermostat.lower() == "nose-hoover":
-                """
-                Combined Nose-Hoover and Parrinello-Rahman dynamics, creating an
-                NPT (or N,stress,T) ensemble.
-                see: https://gitlab.com/ase/ase/-/blob/master/ase/md/npt.py
-                ASE implementation currently only supports upper triangular lattice
-                """
-                self.upper_triangular_cell()
-                ptime = taup * units.fs
-                self.dyn = NPT(
-                    atoms=self.atoms,
-                    timestep=timestep * units.fs,
-                    temperature_K=temperature,
-                    externalstress=pressure * units.GPa,
-                    ttime=taut * units.fs,
-                    pfactor=bulk_modulus * units.GPa * ptime * ptime,
-                    trajectory=trajectory,
-                    logfile=logfile,
-                    loginterval=loginterval,
-                    append_trajectory=append_trajectory,
-                )
-                print("NPT-Nose-Hoover MD created")
-
-            elif thermostat.lower() == "berendsen_inhomogeneous":
-                """
-                Inhomogeneous_NPTBerendsen thermo/barostat
-                This is a more flexible scheme that fixes three angles of the unit
-                cell but allows three lattice parameter to change independently.
-                see: https://gitlab.com/ase/ase/-/blob/master/ase/md/nptberendsen.py
-                """
-
-                self.dyn = Inhomogeneous_NPTBerendsen(
-                    atoms=self.atoms,
-                    timestep=timestep * units.fs,
-                    temperature_K=temperature,
-                    pressure_au=pressure * units.GPa,
-                    taut=taut * units.fs,
-                    taup=taup * units.fs,
-                    compressibility_au=compressibility_au,
-                    trajectory=trajectory,
-                    logfile=logfile,
-                    loginterval=loginterval,
-                )
-                print("NPT-Berendsen-inhomogeneous-MD created")
-
-            elif thermostat.lower() == "npt_berendsen":
-                """
-                This is a similar scheme to the Inhomogeneous_NPTBerendsen.
-                This is a less flexible scheme that fixes the shape of the
-                cell - three angles are fixed and the ratios between the three
-                lattice constants.
-                see: https://gitlab.com/ase/ase/-/blob/master/ase/md/nptberendsen.py
-                """
-
-                self.dyn = NPTBerendsen(
-                    atoms=self.atoms,
-                    timestep=timestep * units.fs,
-                    temperature_K=temperature,
-                    pressure_au=pressure * units.GPa,
-                    taut=taut * units.fs,
-                    taup=taup * units.fs,
-                    compressibility_au=compressibility_au,
-                    trajectory=trajectory,
-                    logfile=logfile,
-                    loginterval=loginterval,
-                    append_trajectory=append_trajectory,
-                )
-                print("NPT-Berendsen-MD created")
-            else:
-                raise ValueError(
-                    "Thermostat not supported, choose in 'Nose-Hoover', 'Berendsen', "
-                    "'Berendsen_inhomogeneous'"
-                )
-        
         self.trajectory = trajectory
         self.logfile = logfile
         self.loginterval = loginterval
         self.timestep = timestep
-        self.crystal_feas_logfile = crystal_feas_logfile
 
     def run(self, steps: int) -> None:
         """Thin wrapper of ase MD run.
@@ -300,50 +184,32 @@ class MolecularDynamics:
         Args:
             steps (int): number of MD steps
         """
-        if self.crystal_feas_logfile:
-            obs = CrystalFeasObserver(self.atoms)
-            self.dyn.attach(obs, interval=self.loginterval)
-
         self.dyn.run(steps)
 
-        if self.crystal_feas_logfile:
-            obs.save(self.crystal_feas_logfile)
-
     def set_atoms(self, atoms: Atoms) -> None:
-        """Set new atoms to run MD.
+        """Start fresh integration for new atoms, retaining calculator and outputs.
 
-        Args:
-            atoms (Atoms): new atoms for running MD
+        Existing trajectory files are appended. Integrator state and step count
+        restart; attach any custom ASE observers to the new ``dyn`` instance.
         """
         calculator = self.atoms.calc
+        self.dyn.close()
         self.atoms = atoms
-        self.dyn.atoms = atoms
-        self.dyn.atoms.calc = calculator
+        atoms.calc = calculator
+        if self.thermostat == "nose-hoover" and self.ensemble != "nve":
+            self.upper_triangular_cell()
+        self._dynamics_kwargs.update(atoms=atoms, append_trajectory=True)
+        if isinstance(self.trajectory, TrajectoryWriter):
+            self.trajectory.atoms = atoms
+        self.dyn = type(self.dyn)(**self._dynamics_kwargs)
 
-    def upper_triangular_cell(self, verbose: bool | None = False) -> None:
-        """Transform to upper-triangular cell.
-        ASE Nose-Hoover implementation only supports upper-triangular cell
-        while ASE's canonical description is lower-triangular cell.
-
-        Args:
-            verbose (bool): Whether to notify user about upper-triangular cell
-                transformation. Default = False
-        """
-        if not NPT._isuppertriangular(self.atoms.get_cell()):
-            a, b, c, alpha, beta, gamma = self.atoms.cell.cellpar()
-            angles = np.radians((alpha, beta, gamma))
-            sin_a, sin_b, _sin_g = np.sin(angles)
-            cos_a, cos_b, cos_g = np.cos(angles)
-            cos_p = (cos_g - cos_a * cos_b) / (sin_a * sin_b)
-            cos_p = np.clip(cos_p, -1, 1)
-            sin_p = (1 - cos_p**2) ** 0.5
-
-            new_basis = [
-                (a * sin_b * sin_p, a * sin_b * cos_p, a * cos_b),
-                (0, b * sin_a, b * cos_a),
-                (0, 0, c),
-            ]
-
-            self.atoms.set_cell(new_basis, scale_atoms=True)
+    def upper_triangular_cell(self, verbose: bool = False) -> None:
+        """Rotate the cell, positions, and momenta into ASE NPT's upper form."""
+        cell = self.atoms.cell
+        if not np.array_equal(cell, np.triu(cell)):
+            cell, rotation = cell.standard_form("upper")
+            momenta = self.atoms.get_momenta() @ rotation.T
+            self.atoms.set_cell(cell, scale_atoms=True)
+            self.atoms.set_momenta(momenta, apply_constraint=False)
             if verbose:
                 print("Transformed to upper triangular unit cell.", flush=True)

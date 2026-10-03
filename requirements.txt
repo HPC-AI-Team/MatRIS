@@ -1,4 +1,6 @@
-ase==3.23.0
-numpy==2.3.4
-pymatgen==2025.10.07
-torch==2.6.0
+ase>=3.23.0
+numpy>=2.0.0
+pymatgen>=2024.9.10
+torch>=2.11
+nvalchemi-toolkit-ops>=0.4.1,<0.5
+ninja

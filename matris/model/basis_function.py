@@ -28,7 +28,7 @@ class PolynomialEnvelope(nn.Module):
         self.b = self.p * (self.p + 2)
         self.c = -self.p * (self.p + 1) / 2
 
-    def forward(self, dist: Tensor) -> Tensor:
+    def forward(self, dist: Tensor, *, fast: bool = False) -> Tensor:
         """
         Args:
             dist (Tensor): radius distance tensor
@@ -36,21 +36,29 @@ class PolynomialEnvelope(nn.Module):
         Returns:
             polynomial cutoff functions: decaying from 1 to 0
         """
-        if self.p != 0:
-            dist_scaled = dist / self.cutoff
-            
+        dist_scaled = dist / self.cutoff
+        if self.p.is_integer():
+            # Factor the triple root at the cutoff to avoid cancellation of
+            # O(1) terms when the envelope and its derivatives approach zero.
+            env_val = self.p * (self.p + 1) / 2
+            for degree in range(int(self.p) - 2, -1, -1):
+                env_val = env_val * dist_scaled + (degree + 1) * (degree + 2) / 2
+            env_val = (1 - dist_scaled) ** 3 * env_val
+        else:
+            power = torch.pow
+            if fast and dist.is_cuda:
+                from .op.elementwise import PowFunction
+
+                power = PowFunction.apply
             env_val = (
                 1
-                + self.a * dist_scaled ** self.p
-                + self.b * dist_scaled ** (self.p + 1)
-                + self.c * dist_scaled ** (self.p + 2)
+                + self.a * power(dist_scaled, self.p)
+                + self.b * power(dist_scaled, self.p + 1)
+                + self.c * power(dist_scaled, self.p + 2)
             )
-            
-            return torch.where(dist_scaled < 1, env_val, torch.zeros_like(dist_scaled))
-        return dist.new_ones(dist.shape)
+        return torch.where(dist_scaled < 1, env_val, torch.zeros_like(dist_scaled))
 
 
-@torch.jit.script
 def SphericalHarmonics(lmax: int, x: torch.Tensor) -> torch.Tensor:
     
     sh_0_0 = torch.ones_like(x) * 0.5 * math.sqrt(1.0 / math.pi)
@@ -75,6 +83,7 @@ def SphericalHarmonics(lmax: int, x: torch.Tensor) -> torch.Tensor:
         return torch.stack([sh_0_0, sh_1_1, sh_2_2, sh_3_3], dim=-1)
 
     raise ValueError("lmax <= 3")
+
 
 class FourierExpansion(nn.Module):
     """
@@ -106,7 +115,7 @@ class FourierExpansion(nn.Module):
     def forward(self, feature: Tensor) -> Tensor:
         """Apply Fourier expansion to feature."""
         result = feature.new_zeros(feature.shape[0], 1 + 2 * self.max_f)
-        result[:, 0] = 1 / torch.sqrt(torch.tensor([2]))
+        result[:, 0] = math.sqrt(0.5)
         tmp = torch.outer(feature, self.frequencies) 
         result[:, 1 : self.max_f + 1] = torch.sin(tmp)
         result[:, self.max_f + 1 :] = torch.cos(tmp)
@@ -118,6 +127,7 @@ class BesselExpansion(torch.nn.Module):
         Bessel expansion for pairwise feature
         Details are given in: https://arxiv.org/abs/2003.03123
     """
+
     def __init__(
         self,
         num_radial: int = 9,
@@ -160,7 +170,7 @@ class BesselExpansion(torch.nn.Module):
             self.envelope_func = None
 
     def forward(
-        self, dist: Tensor, return_smooth_factor: bool = False
+        self, dist: Tensor, return_smooth_factor: bool = False, *, fast: bool = False
     ) -> Tensor | tuple[Tensor, Tensor]:
         """Apply Bessel expansion to feature.
         
@@ -179,7 +189,7 @@ class BesselExpansion(torch.nn.Module):
         d_scaled = dist * self.inv_cutoff
         out = self.norm_const * torch.sin(self.frequencies * d_scaled) / dist
         if self.envelope_func is not None:
-            smooth_factor = self.envelope_func(dist)
+            smooth_factor = self.envelope_func(dist, fast=fast)
             out = smooth_factor * out
             if return_smooth_factor:
                 return out, smooth_factor
@@ -191,6 +201,7 @@ class GaussianExpansion(nn.Module):
         Gaussian expansion for pairwise feature.
         Code adapted from the repo: https://github.com/facebookresearch/fairchem/blob/main/src/fairchem/core/models/uma/nn/radial.py#L42
     """
+
     def __init__(
         self,
         start: float = 0.0, 
@@ -204,7 +215,7 @@ class GaussianExpansion(nn.Module):
         self.coeff = -0.5 / (basis_width_scalar * (offset[1] - offset[0])).item() ** 2
         self.register_buffer("offset", offset)
 
-    def forward(self, dist) -> Tensor:
+    def forward(self, dist, *, fast: bool = False) -> Tensor:
         """Apply Bessel expansion to feature.
         
         Args:
@@ -224,6 +235,7 @@ class SphericalExpansion(nn.Module):
         Spherical expansion for three-body feature.
         Code adapted from the repo: https://github.com/microsoft/mattersim
     """
+
     def __init__(self, max_n = 4, max_l = 4, cutoff = 6):
         super().__init__()
 
@@ -238,7 +250,7 @@ class SphericalExpansion(nn.Module):
         self.register_buffer(
             "factor", torch.sqrt(torch.tensor(2.0 / (self.cutoff**3)))
         )
-        self.coef = torch.zeros(4, 9, 4)
+        self.register_buffer("coef", torch.zeros(4, 9, 4), persistent=False)
         self.coef[0, 0, :] = torch.tensor(
             [ 3.14159274101257, 6.28318548202515, 9.42477798461914, 12.5663709640503 ]
         )
@@ -336,32 +348,3 @@ class SphericalExpansion(nn.Module):
         cbfs = cbfs.repeat_interleave(self.max_n, dim=1)
         
         return rbfs * cbfs
-
-
-class SinusoidalTimeExpansion(nn.Module):
-    """ Encode time """
-    
-    def __init__(self, dim: int = 128):
-        """
-        Args:
-            dim (int): the embedding size of Time.
-        """
-        super().__init__()
-
-        self.dim = dim
-        half_dim = self.dim // 2
-        # Inverse frequencies for sinusoidal embedding
-        self.register_buffer(
-            "inv_freq",
-            torch.exp(torch.arange(half_dim, dtype=torch.float32) * (-math.log(10000) / (half_dim - 1)))
-        )
-    
-    def forward(self, feature):
-        shape = feature.shape
-        feature = feature.view(-1).to(torch.float32)
-        sinusoid_in = torch.ger(feature, self.inv_freq)
-        time_emb = torch.cat([sinusoid_in.sin(), sinusoid_in.cos()], dim=-1)
-        # Restore original shape with embedding dimension
-        time_emb = time_emb.view(*shape, self.dim)
-
-        return time_emb
