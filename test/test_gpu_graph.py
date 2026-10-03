@@ -15,6 +15,75 @@ from ase.neighborlist import neighbor_list
     "CUDA and nvalchemiops are required",
 )
 class TestGPUGraph(unittest.TestCase):
+    def test_empty_directed_average(self):
+        from matris.model.functions import directed_average
+
+        features = torch.empty((0, 32), device="cuda", requires_grad=True)
+        indices = torch.empty(0, dtype=torch.int64, device="cuda")
+        result = directed_average(features, indices, 0, fast=True)
+        self.assertEqual(result.shape, (0, 32))
+        result.sum().backward()
+        torch.testing.assert_close(features.grad, torch.zeros_like(features))
+
+    def test_partial_periodic_converter(self):
+        from pymatgen.core import Lattice, Structure
+        from matris.graph import GraphConverter
+
+        converter = GraphConverter().eval().cuda()
+        for pbc in ((True, False, False), (True, True, False), (False, False, False)):
+            with self.subTest(pbc=pbc):
+                structure = Structure(
+                    Lattice([[4, 0, 0], [0.5, 4, 0], [0.25, 0.5, 4]], pbc=pbc),
+                    ["Si", "Si"], [[0, 0, 0], [0.4, 0.4, 0.4]],
+                )
+                expected = converter(structure, mode="torch")
+                actual = converter(structure, mode="fast")
+                rows = []
+                for graph in (expected, actual):
+                    edges = np.column_stack((
+                        graph.atom_graph.cpu().numpy(), graph.neighbor_image.cpu().numpy(),
+                    ))
+                    rows.append(edges[np.lexsort(edges[:, ::-1].T)])
+                np.testing.assert_array_equal(rows[1], rows[0])
+                self.assertEqual(torch.count_nonzero(
+                    actual.neighbor_image[:, np.logical_not(pbc)]
+                ).item(), 0)
+
+    def test_boundary_inference(self):
+        from pymatgen.core import Lattice, Structure
+        from matris.model import MatRIS
+
+        with torch.random.fork_rng(devices=[]):
+            torch.manual_seed(17)
+            model = MatRIS(
+                num_layers=1, node_feat_dim=32, edge_feat_dim=32,
+                three_body_feat_dim=32, mlp_hidden_dims=(32, 32), norm_type="layer",
+            ).eval().cuda().requires_grad_(False)
+        structures = [
+            Structure(Lattice.cubic(40), ["Si"], [[0, 0, 0]]),
+            Structure(Lattice.cubic(40), ["Si", "O"], [[0, 0, 0], [0.5, 0, 0]]),
+        ]
+        for pbc in ((True, False, False), (True, True, False)):
+            structures.append(Structure(
+                Lattice([[4, 0, 0], [0.5, 4, 0], [0.25, 0.5, 4]], pbc=pbc),
+                ["Si", "Si"], [[0, 0, 0], [0.4, 0.4, 0.4]],
+            ))
+        for index, structure in enumerate(structures):
+            with self.subTest(index=index, pbc=structure.lattice.pbc):
+                expected_graph = model.graph_converter(structure, mode="torch").to("cuda")
+                actual_graph = model.graph_converter(structure, mode="fast")
+                expected = model([expected_graph], task="efs", mode="torch")
+                actual = model([actual_graph], task="efs", mode="fast")
+                for key in ("e", "f", "s"):
+                    reference = expected[key] if key == "e" else expected[key][0]
+                    value = actual[key] if key == "e" else actual[key][0]
+                    self.assertTrue(torch.isfinite(value).all().item())
+                    torch.testing.assert_close(value, reference, atol=2e-5, rtol=1e-4)
+                if index < 2:
+                    self.assertEqual(actual_graph.atom_graph.shape[0], 0)
+                    torch.testing.assert_close(actual["f"][0], torch.zeros_like(actual["f"][0]))
+                    torch.testing.assert_close(actual["s"][0], torch.zeros_like(actual["s"][0]))
+
     def test_isolated_and_periodic_atoms(self):
         from matris.graph.converter import build_graph_tensors
         from matris.model.op.graph import build_graph_tensors_gpu, gpu_neighbor_list

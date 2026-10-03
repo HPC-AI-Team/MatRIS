@@ -251,6 +251,8 @@ at::Tensor directed2undirected_average_forward(const at::Tensor &input, const at
                 "segment must have shape [N]");
 
     auto output = at::zeros({num_segment, kFeatureDim}, input.options());
+    if (input.numel() == 0)
+        return output;
     int rows = static_cast<int>(input.size(0));
     int total = rows * kFeatureDim;
     int blocks = (total + kBlockThreads - 1) / kBlockThreads;

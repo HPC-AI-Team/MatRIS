@@ -42,8 +42,7 @@ class TestTorchSim(unittest.TestCase):
         expected = model.model([graph, graph], task="efsm", mode="torch")
         for target in ("e", "em", "ef", "efs", "efsm"):
             model = MatRISTorchSimModel(self.model.model, mode="torch", target=target)
-            with torch.no_grad():
-                actual = model(self.state)
+            actual = model(self.state)
             self.assertEqual(set(actual), {name for key, name in zip(
                 "efsm", ("energy", "forces", "stress", "magmoms")) if key in target})
             self.assertEqual(model.compute_forces, "f" in target)
@@ -87,13 +86,12 @@ class TestTorchSim(unittest.TestCase):
         import torch_sim as ts
 
         expected = self.model(self.state)
-        with torch.inference_mode():
-            state = ts.io.atoms_to_state(
-                [bulk("Si", "diamond", a=5.43, cubic=True)] * 2,
-                device=self.model.device, dtype=self.model.dtype,
-            )
-            state.atomic_numbers = state.atomic_numbers.to(torch.int32)
-            actual = self.model(state)
+        state = ts.io.atoms_to_state(
+            [bulk("Si", "diamond", a=5.43, cubic=True)] * 2,
+            device=self.model.device, dtype=self.model.dtype,
+        )
+        state.atomic_numbers = state.atomic_numbers.to(torch.int32)
+        actual = self.model(state)
         for key in expected:
             torch.testing.assert_close(actual[key], expected[key])
 

@@ -144,6 +144,7 @@ class GraphConverter(nn.Module):
                 lattice_matrix,
                 self.atom_graph_cutoff,
                 device=target_device,
+                pbc=structure.lattice.pbc,
             )
             tensors = build_graph_tensors_gpu(
                 edges, ptr, image, distance, line_cutoff=self.line_graph_cutoff
