@@ -4,17 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "matris"
-dynamic = ["version"]
+version = "1.0.0"
 authors = [
     {name = "HPC-AI-Team"},
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 description = "MatRIS model"
 readme = "README.md"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: BSD License",
     "Operating System :: OS Independent",
@@ -24,7 +22,9 @@ dependencies = [
     "ase>=3.23.0",
     "numpy>=2.0.0",
     "pymatgen>=2024.9.10",
-    "torch>=2.6.0",
+    "torch>=2.11",
+    "nvalchemi-toolkit-ops>=0.4.1,<0.5",
+    "ninja",
 ]
 
 [project.urls]
@@ -32,6 +32,12 @@ Homepage = "https://github.com/HPC-AI-Team/MatRIS"
 Repository = "https://github.com/HPC-AI-Team/MatRIS"
 Issues = "https://github.com/HPC-AI-Team/MatRIS/issues"
 
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["matris*"] 
+
+[tool.pytest.ini_options]
+testpaths = ["test"]

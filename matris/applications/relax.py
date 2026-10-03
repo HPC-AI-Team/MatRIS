@@ -1,68 +1,61 @@
-""" Modified from CHGNet: https://github.com/CederGroupHub/chgnet """
+"""Structure relaxation, adapted from https://github.com/CederGroupHub/chgnet."""
 
-import inspect
-import sys
-import io
 import contextlib
-from ase import Atoms
-from ase.optimize.optimize import Optimizer
-import ase.filters as filter_classes
-from ase.filters import Filter
-from pymatgen.io.ase import AseAtomsAdaptor
-from pymatgen.core.structure import Structure
+import io
+import sys
 
-from .base import (
-    OPTIMIZERS,
-    MatRISCalculator, 
-    TrajectoryObserver,
-    CrystalFeasObserver
-)
+import ase.filters as filter_classes
+from ase import Atoms
+from ase.filters import Filter
+from ase.optimize.optimize import Optimizer
+from pymatgen.core.structure import Structure
+from pymatgen.io.ase import AseAtomsAdaptor
+
+from .base import OPTIMIZERS, MatRISCalculator, TrajectoryObserver
+
 
 class StructOptimizer:
-    """This class is used for Sturcture Optimization."""
+    """Relax atomic positions and optionally the cell with an ASE optimizer."""
 
     def __init__(
         self,
         model: str = "matris_10m_oam",
         task: str = "efs",
         optimizer: str = "FIRE",
-        device: str = "cpu",
+        device: str | None = "cpu",
+        mode: str = "fast",
+        activation_checkpoint: bool = False,
+        tf32: bool = False,
     ) -> None:
+        """Initialize a named ASE optimizer and a MatRIS calculator.
+
+        ``model`` is a pretrained model name. ``task``, ``device``, ``mode``,
+        ``activation_checkpoint`` and ``tf32`` are passed to ``MatRISCalculator``.
         """
-        Args:
-            model (MatRIS): Instance of a MatRIS model. If set to None, the default MatRIS is loaded.
-            task (str): The prediction task. Can be 'e', 'em', 'ef', 'efs', 'efsm'.
-            optimizer (Optimizer,str): choose optimizer from ASE.
-            device (str): The device to be used for predictions,
-            stress_unit (float): the conversion factor to convert GPa(MatRIS default) to eV/A^3.
-            **kwargs: Passed to the Calculator parent class.
-        """
-        
-        if optimizer in OPTIMIZERS:
-            optimizer = OPTIMIZERS[optimizer]
-        else:
+        if optimizer not in OPTIMIZERS:
             raise ValueError(
                 f"Optimizer {optimizer} not found. Select from {list(OPTIMIZERS)}"
             )
-        
-        self.optimizer: Optimizer = optimizer
-        
+        self.optimizer: type[Optimizer] = OPTIMIZERS[optimizer]
+
         self.calculator = MatRISCalculator(
             model=model,
+            mode=mode,
+            activation_checkpoint=activation_checkpoint,
+            tf32=tf32,
             task=task,
             device=device,
         )
-    
+
     def relax(
         self,
         atoms: Structure | Atoms,
         fmax: float = 0.05,
         steps: int = 500,
         relax_cell: bool = True,
-        ase_filter: str = "FrechetCellFilter",
-        save_path: str = None,
+        ase_filter: str | type[Filter] = "FrechetCellFilter",
+        save_path: str | None = None,
         loginterval: int = 1,
-        crystal_feas_save_path: str = None,
         verbose: bool = True,
         assign_magmoms: bool = True,
         **kwargs,
@@ -73,33 +66,25 @@ class StructOptimizer:
             fmax (float): The maximum force tolerance for relaxation.
             steps (int): The maximum number of steps for relaxation.
             relax_cell (bool): Whether to relax the cell as well.
-            ase_filter (str): The filter to apply to the atoms object for relaxation. 
+            ase_filter (str | type[Filter]): ASE filter for cell relaxation.
             save_path (str): The path to save the trajectory.
-            loginterval (int): Interval for logging trajectory and crystal feas.
-            crystal_feas_save_path (str): Path to save crystal feature vectors
-                which are logged at a loginterval rage
+            loginterval (int): Positive step interval for recording frames.
             verbose (bool): Whether to print the output of the ASE optimizer.
             assign_magmoms (bool): Whether to assign magnetic moments to the final
                 structure.
             **kwargs: Additional parameters for the optimizer.
         """
 
-        valid_filter_names = [
-            name
-            for name, cls in inspect.getmembers(filter_classes, inspect.isclass)
-            if issubclass(cls, Filter)
-        ]
-
-        if isinstance(ase_filter, str):
-            if ase_filter in valid_filter_names:
-                ase_filter = getattr(filter_classes, ase_filter)
-            else:
-                raise ValueError(
-                    f"Invalid {ase_filter=}, must be one of {valid_filter_names}. "
-                )
+        if loginterval <= 0:
+            raise ValueError("loginterval must be positive")
+        if relax_cell and isinstance(ase_filter, str):
+            filter_type = getattr(filter_classes, ase_filter, None)
+            if not isinstance(filter_type, type) or not issubclass(filter_type, Filter):
+                raise ValueError(f"Unknown ASE cell filter: {ase_filter}")
+            ase_filter = filter_type
 
         if isinstance(atoms, Structure):
-            atoms = AseAtomsAdaptor().get_atoms(atoms)
+            atoms = AseAtomsAdaptor.get_atoms(atoms)
 
         atoms.calc = self.calculator
 
@@ -107,37 +92,21 @@ class StructOptimizer:
         with contextlib.redirect_stdout(stream):
             obs = TrajectoryObserver(atoms)
 
-            if crystal_feas_save_path:
-                cry_obs = CrystalFeasObserver(atoms)
-
-            if relax_cell:
-                atoms = ase_filter(atoms)
-            optimizer: Optimizer = self.optimizer(atoms, **kwargs)
+            optimizer = self.optimizer(
+                ase_filter(atoms) if relax_cell else atoms, **kwargs
+            )
             optimizer.attach(obs, interval=loginterval)
 
-            if crystal_feas_save_path:
-                optimizer.attach(cry_obs, interval=loginterval)
-
             optimizer.run(fmax=fmax, steps=steps)
-            obs()
+            if optimizer.nsteps % loginterval:
+                obs()
 
         if save_path is not None:
             obs.save(save_path)
 
-        if crystal_feas_save_path:
-            cry_obs.save(crystal_feas_save_path)
-
-        if isinstance(atoms, Filter):
-            atoms = atoms.atoms
         struct = AseAtomsAdaptor.get_structure(atoms)
-        
-        if assign_magmoms:
-            if atoms.get_magnetic_moments() is not None:
-                for key in struct.site_properties:
-                    struct.remove_site_property(property_name=key)
-                struct.add_site_property(
-                    "magmom", [float(magmom) for magmom in atoms.get_magnetic_moments()]
-                )
-        
-        return {"final_structure": struct, "trajectory": obs}
 
+        if assign_magmoms and "magmoms" in self.calculator.implemented_properties:
+            struct.add_site_property("magmom", atoms.get_magnetic_moments().tolist())
+
+        return {"final_structure": struct, "trajectory": obs}

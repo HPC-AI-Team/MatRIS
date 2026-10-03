@@ -1,2 +1,17 @@
 matris.egg-info/
 build/
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+*.so
+
+# Generated training and distribution outputs
+checkpoint/
+log/

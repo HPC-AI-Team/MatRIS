@@ -1,167 +1,155 @@
-from ase import Atoms, units
-from ase.calculators.calculator import Calculator, all_changes, all_properties
-import numpy as np
+"""ASE calculator and trajectory observers for MatRIS applications."""
+
 import pickle
+
+import numpy as np
+from ase import Atoms, units
+from ase.calculators.calculator import Calculator, all_changes
+from ase.optimize import BFGS, FIRE, LBFGS, BFGSLineSearch, LBFGSLineSearch, MDMin
+from pymatgen.io.ase import AseAtomsAdaptor
+
 from ..model.model import MatRIS
 
-from pymatgen.io.ase import AseAtomsAdaptor
-from ..graph import RadiusGraph
+OPTIMIZERS = {
+    cls.__name__: cls
+    for cls in (BFGS, BFGSLineSearch, FIRE, LBFGS, LBFGSLineSearch, MDMin)
+}
 
-from ase.optimize import (
-    BFGS, BFGSLineSearch, 
-    FIRE, LBFGS, 
-    LBFGSLineSearch, MDMin
-)
-
-names = [
-    "BFGS", "BFGSLineSearch", 
-    "FIRE", "LBFGS", 
-    "LBFGSLineSearch", "MDMin"
-]
-
-OPTIMIZERS = {name: globals()[name] for name in names}
 
 class MatRISCalculator(Calculator):
-    """MatRIS Calculator for ASE applications."""
-    
-    implemented_properties = ("energy", "forces", "stress", "magmoms")  # type: ignore
-    
+    """ASE calculator returning total energies, forces, and stress in ASE units."""
+
+    implemented_properties = ("energy", "forces", "stress", "magmoms")
+
     def __init__(
         self,
         model: str = "matris_10m_oam",
         task: str = "efs",
-        device: str = "cpu",
+        device: str | None = "cpu",
+        mode: str = "fast",
+        activation_checkpoint: bool = True,
+        tf32: bool = False,
         **kwargs,
     ) -> None:
-        """
+        """Initialize the calculator.
+
         Args:
-            model (MatRIS): Instance of a MatRIS model. If set to None, the default MatRIS is loaded.
-            task (str): The prediction task. Can be 'e', 'em', 'ef', 'efs', 'efsm'.
-            device (str): The device to be used for predictions,
-            stress_unit (float): the conversion factor to convert GPa(MatRIS default) to eV/A^3.
-            **kwargs: Passed to the Calculator parent class.
+            model: Pretrained model name passed to ``MatRIS.load``.
+            task: Prediction task: 'e', 'em', 'ef', 'efs', or 'efsm'.
+            device: Model device; None selects CUDA when available, otherwise CPU.
+            mode: 'fast' (operators + compile) or 'torch' (eager PyTorch).
+            activation_checkpoint: Enable adaptive inference recomputation; disabled by default.
+            tf32: Permit TF32 for interaction-block FP32 GEMMs only.
+            **kwargs: Passed to the ASE Calculator.
         """
+        if "checkpoint" in kwargs:
+            raise TypeError("Use activation_checkpoint instead of checkpoint.")
         super().__init__(**kwargs)
-        self.task=task
-        self.device = device
-        self.model = MatRIS.load(model_name=model, device=self.device)
-        
+        self.task = task
+        if mode not in ("fast", "torch"):
+            raise ValueError(f"Unknown mode {mode!r}; choose 'fast' or 'torch'.")
+        self.mode = mode
+        self.activation_checkpoint = activation_checkpoint
+        self.tf32 = tf32
+        self.model = MatRIS.load(model_name=model, device=device).eval()
+        for parameter in self.model.parameters():
+            parameter.requires_grad = False
+        self.device = next(self.model.parameters()).device
         self.stress_unit = units.GPa
-        key = ["atoms_per_graph", "ref_energy"]
-        for t in task:
-            key.append(t)
-        self.key = set(key)
-     
+        self.implemented_properties = [
+            name
+            for key, name in zip("efsm", ("energy", "forces", "stress", "magmoms"))
+            if key in task
+        ]
+
     def calculate(
         self,
-        atoms: Atoms,
-        properties: list,
-        system_changes: list,
+        atoms: Atoms | None = None,
+        properties: list[str] | None = None,
+        system_changes: list[str] = all_changes,
     ) -> None:
-        
-        properties = properties or all_properties
-        system_changes = system_changes or all_changes
-        super().calculate(
-            atoms=atoms,
-            properties=properties,
-            system_changes=system_changes,
-        )
-
+        """Evaluate one structure without modifying the caller's atoms."""
+        super().calculate(atoms, properties, system_changes)
+        atoms = self.atoms
         pbc = atoms.get_pbc()
-        if (not pbc[0]) or (not pbc[1]) or (not pbc[2]):
-            pos = atoms.get_positions()
-            cell = np.array(atoms.get_cell())
-            
-            pbc_x = pbc[0]
-            pbc_y = pbc[1]
-            pbc_z = pbc[2]
-            identity = np.identity(3, dtype=float)
-            max_positions = np.max(np.absolute(pos)) + 1
-            
+        if not pbc.all():
+            atoms = atoms.copy()
+            cell = atoms.cell.copy()
             cutoff = self.model.config["pairwise_cutoff"]
             expand = max(5, self.model.config["num_layers"])
-
-            # Extend cell in non-periodic directions
-            if not pbc_x:
-                cell[0, :] = max_positions * expand * cutoff * identity[0, :]
-            if not pbc_y:
-                cell[1, :] = max_positions * expand * cutoff * identity[1, :]
-            if not pbc_z:
-                cell[2, :] = max_positions * expand * cutoff * identity[2, :]
-            
-            # update
+            padding = (np.abs(atoms.positions).max() + 1) * expand * cutoff
+            # Complete the non-periodic directions without changing periodic vectors.
+            cell[~pbc] = 0
+            cell = cell.complete()
+            cell[~pbc] *= padding
             atoms.set_cell(cell, scale_atoms=False)
-        
-        
+
         structure = AseAtomsAdaptor.get_structure(atoms)
-        graph = self.model.graph_converter(structure).to(self.device) # convert to List
-        
-        graphs = [graph] if isinstance(graph, RadiusGraph) else graph
-        
-        model_prediction = self.model(
-            graphs,
-            task = self.task,
-            is_training = False,
+        graph = self.model.graph_converter(
+            structure,
+            atomic_numbers=atoms.get_atomic_numbers(),
+            frac_coords=atoms.get_scaled_positions(wrap=False),
+            lattice_matrix=atoms.cell.array,
+            cart_coords=atoms.get_positions(),
+            mode=self.mode,
+        ).to(self.device)
+        prediction = self.model(
+            [graph],
+            task=self.task,
+            is_training=False,
+            mode=self.mode,
+            activation_checkpoint=self.activation_checkpoint,
+            tf32=self.tf32,
         )
-        model_predictions = {}
-        
-        for key in self.key & set(model_prediction.keys()):
-            for idx, tensor in enumerate(model_prediction[key]):
-                model_predictions[key] = tensor.cpu().detach().numpy()
-        
-        # Convert Result
-        n_atoms = 1 if not self.model.is_intensive else structure.composition.num_atoms
-        
-        self.results.update(
-            ref_energy=model_predictions["ref_energy"] * n_atoms,
-            energy=model_predictions["e"] * n_atoms,  # Total Energy
-            forces=model_predictions.get("f", None),
-            # Stress: GPa -> eV/A^3
-            stress=model_predictions.get("s", None) * self.stress_unit if model_predictions.get("s", None) is not None else None,
-            magmoms=model_predictions.get("m", None),
-        )
+        n_atoms = len(atoms) if self.model.is_intensive else 1
+        ref_energy = prediction["ref_energy"]
+        self.results = {
+            "energy": prediction["e"][0].detach().cpu().item() * n_atoms,
+            "ref_energy": (
+                ref_energy[0].detach().cpu().item()
+                if self.model.reference_energy is not None
+                else ref_energy
+            )
+            * n_atoms,
+        }
+        for key, name in (("f", "forces"), ("s", "stress"), ("m", "magmoms")):
+            if key in prediction:
+                value = prediction[key][0].detach().cpu().numpy()
+                self.results[name] = value * self.stress_unit if key == "s" else value
 
 
 class TrajectoryObserver:
-    # ref: https://github.com/CederGroupHub/chgnet
+    """Record relaxation frames. Adapted from https://github.com/CederGroupHub/chgnet."""
 
     def __init__(self, atoms: Atoms) -> None:
-        
         self.atoms = atoms
         self.energies: list[float] = []
         self.forces: list[np.ndarray] = []
-        self.stresses: list[np.ndarray] = []
-        self.magmoms: list[np.ndarray] = []
+        self.stresses: list[np.ndarray | None] = []
+        self.magmoms: list[np.ndarray | None] = []
         self.atom_positions: list[np.ndarray] = []
         self.cells: list[np.ndarray] = []
 
     def __call__(self) -> None:
-        """The logic for saving the properties of an Atoms during the relaxation."""
-        self.energies.append(self.compute_energy())
+        """Record energy, forces, geometry, and available optional properties."""
+        self.energies.append(self.atoms.get_potential_energy())
         self.forces.append(self.atoms.get_forces())
-        self.stresses.append(self.atoms.get_stress())
-        self.magmoms.append(self.atoms.get_magnetic_moments())
+        properties = self.atoms.calc.implemented_properties
+        self.stresses.append(
+            self.atoms.get_stress() if "stress" in properties else None
+        )
+        self.magmoms.append(
+            self.atoms.get_magnetic_moments() if "magmoms" in properties else None
+        )
         self.atom_positions.append(self.atoms.get_positions())
-        self.cells.append(self.atoms.get_cell()[:])
+        self.cells.append(self.atoms.cell.array.copy())
 
     def __len__(self) -> int:
-        """The number of steps in the trajectory."""
+        """Number of recorded frames."""
         return len(self.energies)
 
-    def compute_energy(self) -> float:
-        """Calculate the potential energy.
-
-        Returns:
-            energy (float): the potential energy.
-        """
-        return self.atoms.get_potential_energy()
-
     def save(self, filename: str) -> None:
-        """Save the trajectory to file.
-
-        Args:
-            filename (str): filename to save the trajectory
-        """
+        """Save the trajectory as a pickle file."""
         out_pkl = {
             "energy": self.energies,
             "forces": self.forces,
@@ -173,27 +161,3 @@ class TrajectoryObserver:
         }
         with open(filename, "wb") as file:
             pickle.dump(out_pkl, file)
-
-
-class CrystalFeasObserver:
-    # ref: https://github.com/CederGroupHub/chgnet
-
-    def __init__(self, atoms: Atoms) -> None:
-        """Create a CrystalFeasObserver from an Atoms object."""
-        self.atoms = atoms
-        self.crystal_feature_vectors: list[np.ndarray] = []
-
-    def __call__(self) -> None:
-        """Record Atoms crystal feature vectors after an MD/relaxation step."""
-        self.crystal_feature_vectors.append(self.atoms._calc.results["crystal_fea"])
-
-    def __len__(self) -> int:
-        """Number of recorded steps."""
-        return len(self.crystal_feature_vectors)
-
-    def save(self, filename: str) -> None:
-        """Save the crystal feature vectors to filename in pickle format."""
-        out_pkl = {"crystal_feas": self.crystal_feature_vectors}
-        with open(filename, "wb") as file:
-            pickle.dump(out_pkl, file)
-                      

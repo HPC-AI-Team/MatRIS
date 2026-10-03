@@ -1,26 +1,70 @@
-"""
-    This code is referenced from: https://github.com/CederGroupHub/chgnet/blob/main/chgnet/graph/converter.py
-    The original implementation can be found at the link above.
-"""
+"""CPU training graphs and CUDA inference graphs with shared topology semantics."""
+
 from __future__ import annotations
 
 import numpy as np
 import torch
-from torch import nn
-import gc
-
-from .radiusgraph import Graph, Node, RadiusGraph
 from pymatgen.core import Structure
+from torch import nn
 
-try:
-    from .cygraph import make_graph
-except (ImportError, AttributeError):
-    make_graph = None
+from .radiusgraph import RadiusGraph
 
-datatype = torch.float32
+
+def build_graph_tensors(natoms, centers, neighbors, images, distances, *, line_cutoff):
+    """Pair periodic reverse edges and enumerate directed angles with NumPy."""
+    centers = np.asarray(centers, dtype=np.int64)
+    neighbors = np.asarray(neighbors, dtype=np.int64)
+    images = np.asarray(images, dtype=np.int64)
+    distances = np.asarray(distances)
+    if np.any(np.bincount(centers, minlength=natoms) == 0):
+        raise ValueError("Error: Detected isolated atom. Calculation stopped")
+
+    keys = np.column_stack((centers, neighbors, images))
+    reverse_keys = np.column_stack((neighbors, centers, -images))
+    order = np.lexsort(keys[:, ::-1].T)
+    reverse_order = np.lexsort(reverse_keys[:, ::-1].T)
+    reverse = np.empty(len(centers), dtype=np.int64)
+    reverse[order] = reverse_order
+    edges = np.arange(len(centers))
+    if not np.array_equal(keys[order], reverse_keys[reverse_order]) or np.any(
+        reverse == edges
+    ):
+        raise ValueError("Periodic neighbor list is missing a reverse edge.")
+    u2d, d2u = np.unique(np.minimum(edges, reverse), return_inverse=True)
+
+    # Center-major ordering matches the CUDA builder. Only angle-sized arrays
+    # are allocated; no dense atom-by-atom or edge-by-edge adjacency is built.
+    by_center = np.argsort(centers, kind="stable")
+    left = by_center[distances[by_center] <= line_cutoff]
+    right = by_center[distances[by_center] < line_cutoff]
+    counts = np.bincount(centers[right], minlength=natoms)
+    starts = np.cumsum(counts) - counts
+    repeats = counts[centers[left]]
+    row_starts = np.cumsum(repeats) - repeats
+    source = np.repeat(left, repeats)
+    target = right[
+        np.arange(repeats.sum())
+        + np.repeat(starts[centers[left]] - row_starts, repeats)
+    ]
+    distinct = source != target
+    source, target = source[distinct], target[distinct]
+    atom_graph = np.column_stack((centers, neighbors)).astype(np.int32)
+    line_graph = np.column_stack(
+        (centers[source], d2u[source], source, d2u[target], target)
+    ).astype(np.int32)
+    return tuple(
+        torch.from_numpy(array)
+        for array in (
+            atom_graph,
+            d2u.astype(np.int32),
+            u2d.astype(np.int32),
+            line_graph,
+        )
+    )
+
 
 class GraphConverter(nn.Module):
-    """Convert a pymatgen.core.Structure to a RadiusGraph"""
+    """Convert structures to graph tensors on CPU, or CUDA during fast inference."""
 
     def __init__(
         self,
@@ -28,95 +72,105 @@ class GraphConverter(nn.Module):
         line_graph_cutoff: float = 4,
         verbose: bool = False,
     ) -> None:
-        """Initialize the Graph Converter.
-        
-        Args:
-            atom_graph_cutoff (float): cutoff radius in atom graph.
-            line_graph_cutoff (float): bond length threshold in line graph.
-            verbose (bool): whether to print the GraphConverter.
-        """
         super().__init__()
+        self.register_buffer("_device_anchor", torch.empty(0), persistent=False)
         self.atom_graph_cutoff = atom_graph_cutoff
         self.line_graph_cutoff = (
             atom_graph_cutoff if line_graph_cutoff is None else line_graph_cutoff
         )
-        
-        if make_graph is not None:
-            self.create_graph = self._create_graph_fast
-            self.algorithm = 'fast'
-        else: 
-            self.create_graph = self._create_graph_legacy
-            self.algorithm = 'legacy'
-            print("fast graph converter algorithm import error, using legacy")
-        
         if verbose:
             print(self)
 
     def __repr__(self) -> str:
-        """String representation of the GraphConverter."""
-        atom_graph_cutoff = self.atom_graph_cutoff
-        line_graph_cutoff = self.line_graph_cutoff
-        algorithm = self.algorithm
-        cls_name = type(self).__name__
-        return f"{cls_name}({algorithm=}, {atom_graph_cutoff=}, {line_graph_cutoff=})"
+        return (
+            f"{type(self).__name__}(atom_graph_cutoff={self.atom_graph_cutoff}, "
+            f"line_graph_cutoff={self.line_graph_cutoff})"
+        )
 
     def forward(
         self,
         structure: Structure,
         graph_id=None,
         mp_id=None,
+        atomic_numbers: (
+            np.ndarray | list[int] | tuple[int, ...] | torch.Tensor | None
+        ) = None,
+        frac_coords: np.ndarray | torch.Tensor | None = None,
+        lattice_matrix: np.ndarray | torch.Tensor | None = None,
+        cart_coords: np.ndarray | torch.Tensor | None = None,
+        *,
+        mode: str = "fast",
+        device: str | torch.device | None = None,
     ) -> RadiusGraph:
-        """Convert a structure, return a RadiusGraph.
+        """Training and DataLoader workers always build on CPU.
 
-        Args:
-            structure (pymatgen.core.Structure): structure to convert
-            graph_id (str): an id to keep track of this crystal graph
-                Default = None
-            mp_id (str): Materials Project id of this structure
-                Default = None
-        
+        ``eval()`` with a CUDA device and ``mode="fast"`` uses GPU neighbor
+        search and CUDA graph assembly. Torch mode and CPU inference use NumPy.
         """
-        n_atoms = len(structure)
-        atomic_number = torch.tensor( [site.specie.Z for site in structure], dtype=torch.int32 )
-        
-        atom_frac_coord = torch.tensor( structure.frac_coords, dtype=datatype )
-        lattice = torch.tensor( structure.lattice.matrix, dtype=datatype )
-        
-        center_index, neighbor_index, image, distance = structure.get_neighbor_list(
-            r=self.atom_graph_cutoff, sites=structure.sites, numerical_tol=1e-8
+        if mode not in ("fast", "torch"):
+            raise ValueError(f"Unknown mode {mode!r}; choose 'fast' or 'torch'.")
+        target_device = (
+            torch.device(device) if device is not None else self._device_anchor.device
         )
-        # Ceate atom graph
-        graph = self.create_graph(
-            n_atoms, center_index, neighbor_index, image, distance
+        use_cuda = (
+            not self.training
+            and mode == "fast"
+            and target_device.type == "cuda"
+            and torch.utils.data.get_worker_info() is None
         )
-        atom_graph, directed2undirected = graph.adjacency_list()
-        atom_graph = torch.tensor(atom_graph, dtype=torch.int32)
-        directed2undirected = torch.tensor(directed2undirected, dtype=torch.int32)
-        undirected2directed = graph.undirected2directed()
-        undirected2directed = torch.tensor(undirected2directed, dtype=torch.int32)
-        
-        line_graph = []
-        try:
-            line_graph = graph.line_graph_adjacency_list(
-                cutoff=self.line_graph_cutoff
-            ) 
-        except Exception as exc:
-            structure.to(filename="error_graph.cif")
+        graph_device = target_device if use_cuda else torch.device("cpu")
+        if atomic_numbers is None:
+            atomic_numbers = np.fromiter(
+                (site.specie.Z for site in structure),
+                dtype=np.int32,
+                count=len(structure),
+            )
+        if frac_coords is None:
+            frac_coords = structure.frac_coords
+        if lattice_matrix is None:
+            lattice_matrix = structure.lattice.matrix
+        atomic_number = torch.asarray(
+            atomic_numbers, dtype=torch.int32, device=graph_device, copy=True
+        )
+        atom_frac_coord = torch.asarray(
+            frac_coords, dtype=torch.float32, device=graph_device, copy=True
+        )
+        lattice = torch.asarray(
+            lattice_matrix, dtype=torch.float32, device=graph_device, copy=True
+        )
 
-        line_graph = torch.tensor(line_graph, dtype=torch.int32)
+        if use_cuda:
+            from ..model.op.graph import build_graph_tensors_gpu, gpu_neighbor_list
 
-        # For isolated atom, we stop this calculation
-        n_isolated_atoms = len({*range(n_atoms)} - {*center_index})
-        if n_isolated_atoms:
-            atom_graph_cutoff = self.atom_graph_cutoff
-            error = f"Error: Detected {n_isolated_atoms} isolated atom. Calculation stopped"
-            raise ValueError(error) # or print(error)
-        
+            edges, ptr, image, distance = gpu_neighbor_list(
+                structure.cart_coords if cart_coords is None else cart_coords,
+                lattice_matrix,
+                self.atom_graph_cutoff,
+                device=target_device,
+            )
+            tensors = build_graph_tensors_gpu(
+                edges, ptr, image, distance, line_cutoff=self.line_graph_cutoff
+            )
+        else:
+            centers, neighbors, image, distance = structure.get_neighbor_list(
+                r=self.atom_graph_cutoff, sites=structure.sites, numerical_tol=1e-8
+            )
+            tensors = build_graph_tensors(
+                len(structure),
+                centers,
+                neighbors,
+                image,
+                distance,
+                line_cutoff=self.line_graph_cutoff,
+            )
+        atom_graph, directed2undirected, undirected2directed, line_graph = tensors
         return RadiusGraph(
             atomic_number=atomic_number,
             atom_frac_coord=atom_frac_coord,
             atom_graph=atom_graph,
-            neighbor_image=torch.tensor(image, dtype=datatype),
+            neighbor_image=torch.as_tensor(
+                image, dtype=torch.float32, device=graph_device
+            ),
             directed2undirected=directed2undirected,
             undirected2directed=undirected2directed,
             line_graph=line_graph,
@@ -128,98 +182,12 @@ class GraphConverter(nn.Module):
             line_graph_cutoff=self.line_graph_cutoff,
         )
 
-    @staticmethod
-    def _create_graph_legacy(
-        n_atoms: int,
-        center_index: np.ndarray,
-        neighbor_index: np.ndarray,
-        image: np.ndarray,
-        distance: np.ndarray,
-    ) -> Graph:
-        """Given structure information, create a Graph structure to be used to
-        create Crystal_Graph using pure python implementation.
-
-        Args:
-            n_atoms (int): the number of atoms in the structure
-            center_index (np.ndarray): np array of indices of center atoms.
-                [num_undirected_bonds]
-            neighbor_index (np.ndarray): np array of indices of neighbor atoms.
-                [num_undirected_bonds]
-            image (np.ndarray): np array of images for each edge.
-                [num_undirected_bonds, 3]
-            distance (np.ndarray): np array of distances.
-                [num_undirected_bonds]
-
-        Return:
-            Graph data structure used to create Crystal_Graph object
-        """
-        
-        graph = Graph([Node(index=idx) for idx in range(n_atoms)])
-        for ii, jj, img, dist in zip(center_index, neighbor_index, image, distance):
-            graph.add_edge(center_index=ii, neighbor_index=jj, image=img, distance=dist)
-      
-        return graph
-
-    @staticmethod
-    def _create_graph_fast(
-        n_atoms: int,
-        center_index: np.ndarray,
-        neighbor_index: np.ndarray,
-        image: np.ndarray,
-        distance: np.ndarray,
-    ) -> Graph:
-        """Given structure information, create a Graph structure to be used to
-        create Crystal_Graph using C implementation.
-
-        NOTE: this is the fast version of _create_graph_legacy optimized
-            in c (~3x speedup).
-
-        Args:
-            n_atoms (int): the number of atoms in the structure
-            center_index (np.ndarray): np array of indices of center atoms.
-                [num_undirected_bonds]
-            neighbor_index (np.ndarray): np array of indices of neighbor atoms.
-                [num_undirected_bonds]
-            image (np.ndarray): np array of images for each edge.
-                [num_undirected_bonds, 3]
-            distance (np.ndarray): np array of distances.
-                [num_undirected_bonds]
-        
-        Return:
-            Graph data structure used to create Crystal_Graph object
-        """
-        center_index = np.ascontiguousarray(center_index)
-        neighbor_index = np.ascontiguousarray(neighbor_index)
-        image = np.ascontiguousarray(image, dtype=np.int_)
-        distance = np.ascontiguousarray(distance)
-        gc_saved = gc.get_threshold()
-        gc.set_threshold(0)
-        (
-            nodes,
-            directed_edges_list,
-            undirected_edges_list,
-            undirected_edges,
-        ) = make_graph(
-            center_index, len(center_index), neighbor_index, image, distance, n_atoms
-        )
-        
-        graph = Graph(nodes=nodes)
-        graph.directed_edges_list = directed_edges_list
-        graph.undirected_edges_list = undirected_edges_list
-        graph.undirected_edges = undirected_edges
-        gc.set_threshold(gc_saved[0])
-        
-        return graph
-
     def as_dict(self) -> dict[str, float]:
-        """Save the args of the graph converter."""
         return {
             "atom_graph_cutoff": self.atom_graph_cutoff,
             "line_graph_cutoff": self.line_graph_cutoff,
-            "algorithm": self.algorithm,
         }
 
     @classmethod
-    def from_dict(cls, dict) -> GraphConverter:
-        """Create converter from dictionary."""
-        return GraphConverter(**dict)
+    def from_dict(cls, config: dict) -> GraphConverter:
+        return cls(**config)
