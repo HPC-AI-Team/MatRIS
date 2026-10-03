@@ -8,9 +8,9 @@ Official PyTorch implementation of **MatRIS** (**Mat**erials **R**epresentation 
 
 **Oct 2026**
 
-- Optimized kernels and `torch.compile` support (~5× faster inference).
-- TorchSim integration.
-- New models: OMat24 and the MatPES PBE/r2SCAN family.
+- Optimized kernels and `torch.compile` support (**~5× faster** inference).
+- **TorchSim** integration.
+- New models: **OMat24** and the **MatPES PBE/r2SCAN family**.
 
 ## Installation
 

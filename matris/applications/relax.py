@@ -8,7 +8,7 @@ import ase.filters as filter_classes
 from ase import Atoms
 from ase.filters import Filter
 from ase.optimize.optimize import Optimizer
-from pymatgen.core.structure import Structure
+from pymatgen.core.structure import Molecule, Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from .base import OPTIMIZERS, MatRISCalculator, TrajectoryObserver
@@ -49,7 +49,7 @@ class StructOptimizer:
 
     def relax(
         self,
-        atoms: Structure | Atoms,
+        atoms: Structure | Molecule | Atoms,
         fmax: float = 0.05,
         steps: int = 500,
         relax_cell: bool = True,
@@ -59,13 +59,14 @@ class StructOptimizer:
         verbose: bool = True,
         assign_magmoms: bool = True,
         **kwargs,
-    ) -> dict[str, Structure | TrajectoryObserver]:
+    ) -> dict[str, Structure | Molecule | TrajectoryObserver]:
         """
         Args:
-            atoms (Structure | Atoms): A Structure or Atoms object to relax.
+            atoms (Structure | Molecule | Atoms): The structure or molecule to relax.
             fmax (float): The maximum force tolerance for relaxation.
             steps (int): The maximum number of steps for relaxation.
-            relax_cell (bool): Whether to relax the cell as well.
+            relax_cell (bool): Whether to relax the cell as well. Set to False
+                for molecules without a cell.
             ase_filter (str | type[Filter]): ASE filter for cell relaxation.
             save_path (str): The path to save the trajectory.
             loginterval (int): Positive step interval for recording frames.
@@ -73,6 +74,11 @@ class StructOptimizer:
             assign_magmoms (bool): Whether to assign magnetic moments to the final
                 structure.
             **kwargs: Additional parameters for the optimizer.
+
+        Returns:
+            A dictionary with ``final_structure`` and ``trajectory``. The final
+            structure is a Molecule for fully nonperiodic inputs and a Structure
+            if any direction is periodic.
         """
 
         if loginterval <= 0:
@@ -83,7 +89,7 @@ class StructOptimizer:
                 raise ValueError(f"Unknown ASE cell filter: {ase_filter}")
             ase_filter = filter_type
 
-        if isinstance(atoms, Structure):
+        if isinstance(atoms, (Structure, Molecule)):
             atoms = AseAtomsAdaptor.get_atoms(atoms)
 
         atoms.calc = self.calculator
@@ -104,7 +110,10 @@ class StructOptimizer:
         if save_path is not None:
             obs.save(save_path)
 
-        struct = AseAtomsAdaptor.get_structure(atoms)
+        if atoms.pbc.any():
+            struct = AseAtomsAdaptor.get_structure(atoms)
+        else:
+            struct = AseAtomsAdaptor.get_molecule(atoms)
 
         if assign_magmoms and "magmoms" in self.calculator.implemented_properties:
             struct.add_site_property("magmom", atoms.get_magnetic_moments().tolist())
