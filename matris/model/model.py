@@ -423,13 +423,13 @@ class MatRIS(nn.Module):
                 "matris_4m_matpes_pbev2": "MatRIS_4M_MatPES_PBEv2.pth.tar",
             }
             DOWNLOAD_URLS = {
-                "matris_10m_omat": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_10M_OMAT.pth.tar",
-                "matris_10m_oam": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_10M_OAM.pth.tar",
-                "matris_10m_mp": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_10M_MP.pth.tar",
-                "matris_4m_matpes_r2scanv1": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_r2SCANv1.pth.tar",
-                "matris_4m_matpes_pbev1": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_PBEv1.pth.tar",
-                "matris_4m_matpes_r2scanv2": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_r2SCANv2.pth.tar",
-                "matris_4m_matpes_pbev2": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_PBEv2.pth.tar",
+                "matris_10m_omat": "https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_OMAT.pth.tar",
+                "matris_10m_oam": "https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_OAM.pth.tar",
+                "matris_10m_mp": "https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_MP.pth.tar",
+                "matris_4m_matpes_r2scanv1": "https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_r2SCANv1.pth.tar",
+                "matris_4m_matpes_pbev1": "https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_PBEv1.pth.tar",
+                "matris_4m_matpes_r2scanv2": "https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_r2SCANv2.pth.tar",
+                "matris_4m_matpes_pbev2": "https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_PBEv2.pth.tar",
             }
             name = source.lower()
             url = source if source.startswith(("https://", "http://")) else DOWNLOAD_URLS.get(name)

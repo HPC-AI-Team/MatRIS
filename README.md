@@ -23,13 +23,13 @@ We offer seven pretrained models:
 
 | Model key | Checkpoint | Dataset | Target |
 | --- | --- | --- | --- |
-| `matris_10m_omat` | [Download](https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_10M_OMAT.pth.tar) | OMat24 | efs |
-| `matris_10m_oam` | [Download](https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_10M_OAM.pth.tar) | OMat24 → sAlex + MPtrj | efsm |
-| `matris_10m_mp` | [Download](https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_10M_MP.pth.tar) | MPtrj | efsm |
-| `matris_4m_matpes_pbev1` | [Download](https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_PBEv1.pth.tar) | MatPES-PBE (2025.1) | efs |
-| `matris_4m_matpes_pbev2` | [Download](https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_PBEv2.pth.tar) | MatPES-PBE (2025.2) | efs |
-| `matris_4m_matpes_r2scanv1` | [Download](https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_r2SCANv1.pth.tar) | MatPES-r2SCAN (2025.1) | efs |
-| `matris_4m_matpes_r2scanv2` | [Download](https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_r2SCANv2.pth.tar) | MatPES-r2SCAN (2025.2) | efs |
+| `matris_10m_omat` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_OMAT.pth.tar) | OMat24 | efs |
+| `matris_10m_oam` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_OAM.pth.tar) | OMat24 → sAlex + MPtrj | efsm |
+| `matris_10m_mp` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_MP.pth.tar) | MPtrj | efsm |
+| `matris_4m_matpes_pbev1` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_PBEv1.pth.tar) | MatPES-PBE (2025.1) | efs |
+| `matris_4m_matpes_pbev2` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_PBEv2.pth.tar) | MatPES-PBE (2025.2) | efs |
+| `matris_4m_matpes_r2scanv1` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_r2SCANv1.pth.tar) | MatPES-r2SCAN (2025.1) | efs |
+| `matris_4m_matpes_r2scanv2` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_r2SCANv2.pth.tar) | MatPES-r2SCAN (2025.2) | efs |
 
 If you need other models, feel free to [contact me](mailto:zhouyuanchang23s@ict.ac.cn).
 
