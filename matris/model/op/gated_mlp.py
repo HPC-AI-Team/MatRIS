@@ -673,7 +673,7 @@ def get_extension():
             cpp_sources=CPP_SOURCE,
             cuda_sources=CUDA_SOURCE,
             extra_cflags=["-O3"],
-            extra_cuda_cflags=["-O3", "-std=c++17", "--extended-lambda"],
+            extra_cuda_cflags=["-O3", "--extended-lambda"],
             verbose=False,
         )
         extension.register_autograd()
@@ -1419,7 +1419,7 @@ def get_projection_extension():
             cpp_sources=PROJECTION_CPP_SOURCE,
             cuda_sources=PROJECTION_CUDA_SOURCE,
             extra_cflags=["-O3"],
-            extra_cuda_cflags=["-O3", "-std=c++17", "--extended-lambda"],
+            extra_cuda_cflags=["-O3", "--extended-lambda"],
             verbose=False,
         )
         extension.register_autograd()

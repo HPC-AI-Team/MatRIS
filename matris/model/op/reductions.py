@@ -442,7 +442,7 @@ def get_extension():
             cpp_sources=CPP_SOURCE,
             cuda_sources=CUDA_SOURCE,
             extra_cflags=["-O3"],
-            extra_cuda_cflags=["-O3", "-std=c++17", "--extended-lambda"],
+            extra_cuda_cflags=["-O3", "--extended-lambda"],
             verbose=False,
         )
         extension.register_autograd()
