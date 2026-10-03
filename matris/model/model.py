@@ -399,7 +399,7 @@ class MatRIS(nn.Module):
 
         Checkpoints contain ``config`` and ``state_dict``, including fitted
         reference energies. New dataset names need no local reference preset.
-        The two original model aliases retain their published download URLs.
+        Published model names download weights from the GitHub Release.
         Other model names are resolved from filenames in ``~/.cache/matris``.
         """
         from hashlib import sha256
@@ -423,13 +423,13 @@ class MatRIS(nn.Module):
                 "matris_4m_matpes_pbev2": "MatRIS_4M_MatPES_PBEv2.pth.tar",
             }
             DOWNLOAD_URLS = {
-                "matris_10m_omat": "https://api.figshare.com/v2/file/download/69575544",
-                "matris_10m_oam": "https://api.figshare.com/v2/file/download/59142728",
-                "matris_10m_mp": "https://api.figshare.com/v2/file/download/59143058",
-                "matris_4m_matpes_r2scanv1": "https://api.figshare.com/v2/file/download/69575538",
-                "matris_4m_matpes_pbev1": "https://api.figshare.com/v2/file/download/69575532",
-                "matris_4m_matpes_r2scanv2": "https://api.figshare.com/v2/file/download/69576381",
-                "matris_4m_matpes_pbev2": "https://api.figshare.com/v2/file/download/69575535",
+                "matris_10m_omat": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_10M_OMAT.pth.tar",
+                "matris_10m_oam": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_10M_OAM.pth.tar",
+                "matris_10m_mp": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_10M_MP.pth.tar",
+                "matris_4m_matpes_r2scanv1": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_r2SCANv1.pth.tar",
+                "matris_4m_matpes_pbev1": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_PBEv1.pth.tar",
+                "matris_4m_matpes_r2scanv2": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_r2SCANv2.pth.tar",
+                "matris_4m_matpes_pbev2": "https://github.com/Asecretboy/MatRIS/releases/download/v1.0.0/MatRIS_4M_MatPES_PBEv2.pth.tar",
             }
             name = source.lower()
             url = source if source.startswith(("https://", "http://")) else DOWNLOAD_URLS.get(name)
