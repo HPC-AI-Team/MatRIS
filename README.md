@@ -8,7 +8,7 @@ Official PyTorch implementation of **MatRIS** (**Mat**erials **R**epresentation 
 
 **Nov 2026**
 
-- Added **OMol25** support.
+- New model: **MatRIS OMol25-0**.
 
 **Oct 2026**
 
