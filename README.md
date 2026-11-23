@@ -6,6 +6,10 @@ Official PyTorch implementation of **MatRIS** (**Mat**erials **R**epresentation 
 
 ## Update
 
+**Nov 2026**
+
+- Added **OMol25** support.
+
 **Oct 2026**
 
 - Optimized kernels and `torch.compile` support (**~5× faster** inference).
@@ -19,10 +23,11 @@ Official PyTorch implementation of **MatRIS** (**Mat**erials **R**epresentation 
 
 ## Pretrained Models
 
-We offer seven pretrained models:
+MatRIS supports the following pretrained checkpoints.
 
 | Model key | Checkpoint | Dataset | Target |
 | --- | --- | --- | --- |
+| `matris_omol` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_OMOL0.pth.tar) | OMol25-0 | ef |
 | `matris_10m_omat` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_OMAT.pth.tar) | OMat24 | efs |
 | `matris_10m_oam` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_OAM.pth.tar) | OMat24 → sAlex + MPtrj | efsm |
 | `matris_10m_mp` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_MP.pth.tar) | MPtrj | efsm |
@@ -62,25 +67,6 @@ energy = atoms.get_potential_energy()   # total energy, eV
 forces = atoms.get_forces()             # eV/A
 stress = atoms.get_stress()             # eV/A^3, ASE convention
 magmoms = atoms.get_magnetic_moments()  # muB
-```
-
-### OMol25 checkpoint
-
-Load a local `MatRIS_OMol.pth.tar` with `task="ef"` for nonperiodic molecules.
-The checkpoint supplies the model architecture.
-Set `atoms.info["charge"]` to the total charge and `atoms.info["spin"]` to the
-spin multiplicity (2S+1). Missing or `None` values default to charge 0 and
-spin multiplicity 1.
-
-```python
-from ase.build import molecule
-from matris.applications.base import MatRISCalculator
-
-atoms = molecule("H2O")
-atoms.info.update(charge=0, spin=1)
-atoms.calc = MatRISCalculator("/path/to/MatRIS_OMol.pth.tar", task="ef", device="cpu", mode="torch")
-energy = atoms.get_potential_energy()  # eV
-forces = atoms.get_forces()            # eV/Å
 ```
 
 ### Structure Optimization

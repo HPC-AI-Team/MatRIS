@@ -499,6 +499,7 @@ class MatRIS(nn.Module):
                 "matris_4m_matpes_pbev1": "MatRIS_4M_MatPES_PBEv1.pth.tar",
                 "matris_4m_matpes_r2scanv2": "MatRIS_4M_MatPES_r2SCANv2.pth.tar",
                 "matris_4m_matpes_pbev2": "MatRIS_4M_MatPES_PBEv2.pth.tar",
+                "matris_omol": "MatRIS_OMol.pth.tar",
             }
             DOWNLOAD_URLS = {
                 "matris_10m_omat": "https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_OMAT.pth.tar",
