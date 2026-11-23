@@ -9,6 +9,7 @@ from ase.optimize import BFGS, FIRE, LBFGS, BFGSLineSearch, LBFGSLineSearch, MDM
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from ..model.model import MatRIS
+from ..graph.converter import electronic_state_metadata
 
 OPTIMIZERS = {
     cls.__name__: cls
@@ -62,6 +63,18 @@ class MatRISCalculator(Calculator):
             if key in task
         ]
 
+    def check_state(self, atoms: Atoms, tol: float = 1e-15) -> list:
+        changes = super().check_state(atoms, tol=tol)
+        if self.atoms is not None and self.model.charge_spin_embedding is not None:
+            old = electronic_state_metadata(self.atoms.info)
+            new = electronic_state_metadata(atoms.info)
+            for name in ("charge", "spin"):
+                previous = 0 if old[name] is None else old[name]
+                current = 0 if new[name] is None else new[name]
+                if previous != current:
+                    changes.append(name)
+        return changes
+
     def calculate(
         self,
         atoms: Atoms | None = None,
@@ -92,6 +105,7 @@ class MatRISCalculator(Calculator):
             lattice_matrix=atoms.cell.array,
             cart_coords=atoms.get_positions(),
             mode=self.mode,
+            **electronic_state_metadata(atoms.info),
         ).to(self.device)
         prediction = self.model(
             [graph],

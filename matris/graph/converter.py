@@ -10,6 +10,17 @@ from torch import nn
 from .radiusgraph import RadiusGraph
 
 
+def electronic_state_metadata(properties) -> dict:
+    """Extract global electronic labels, including common multiplicity aliases."""
+    properties = properties or {}
+    charge = properties.get("charge")
+    if charge is None:
+        charge = properties.get("total_charge")
+    spin = next((properties[key] for key in ("spin", "spin_multiplicity", "multiplicity")
+                 if properties.get(key) is not None), None)
+    return {"charge": charge, "spin": spin}
+
+
 def build_graph_tensors(natoms, centers, neighbors, images, distances, *, line_cutoff):
     """Pair periodic reverse edges and enumerate directed angles with NumPy."""
     centers = np.asarray(centers, dtype=np.int64)
@@ -98,6 +109,8 @@ class GraphConverter(nn.Module):
         *,
         mode: str = "fast",
         device: str | torch.device | None = None,
+        charge: int | float | None = None,
+        spin: int | float | None = None,
     ) -> RadiusGraph:
         """Training and DataLoader workers always build on CPU.
 
@@ -162,6 +175,13 @@ class GraphConverter(nn.Module):
                 line_cutoff=self.line_graph_cutoff,
             )
         atom_graph, directed2undirected, undirected2directed, line_graph = tensors
+        state = electronic_state_metadata(getattr(structure, "properties", None))
+        if charge is None:
+            charge = state["charge"]
+            if charge is None:
+                charge = getattr(structure, "charge", None)
+        if spin is None:
+            spin = state["spin"]
         return RadiusGraph(
             atomic_number=atomic_number,
             atom_frac_coord=atom_frac_coord,
@@ -178,6 +198,9 @@ class GraphConverter(nn.Module):
             composition=structure.composition.formula,
             atom_graph_cutoff=self.atom_graph_cutoff,
             line_graph_cutoff=self.line_graph_cutoff,
+            pbc=structure.lattice.pbc,
+            charge=charge,
+            spin=spin,
         )
 
     def as_dict(self) -> dict[str, float]:

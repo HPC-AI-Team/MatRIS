@@ -64,6 +64,24 @@ stress = atoms.get_stress()             # eV/A^3, ASE convention
 magmoms = atoms.get_magnetic_moments()  # muB
 ```
 
+### OMol25 checkpoint
+
+Load a local `MatRIS_OMol.pth.tar` with `task="ef"` for nonperiodic molecules.
+The checkpoint supplies the model architecture.
+Set `atoms.info["charge"]` to the total charge and `atoms.info["spin"]` to the
+spin multiplicity (2S+1).
+
+```python
+from ase.build import molecule
+from matris.applications.base import MatRISCalculator
+
+atoms = molecule("H2O")
+atoms.info.update(charge=0, spin=1)
+atoms.calc = MatRISCalculator("/path/to/MatRIS_OMol.pth.tar", task="ef", device="cpu", mode="torch")
+energy = atoms.get_potential_energy()  # eV
+forces = atoms.get_forces()            # eV/Å
+```
+
 ### Structure Optimization
 
 ```python

@@ -239,6 +239,9 @@ class ForceStressHead(nn.Module):
         training: bool = True,
     ):
         predict = {}
+        geometry = (batch_graph["edge_lengths"], batch_graph["unit_edge_vectors"])
+        if energy_derivatives is not None and len(energy_derivatives) == 3:
+            geometry = (*geometry, batch_graph["long_range_radial_features"])
         if self.is_conservation:
             assert total_energy is not None
             if compute_force and compute_stress:
@@ -246,10 +249,7 @@ class ForceStressHead(nn.Module):
                     (
                         total_energy.sum()
                         if energy_derivatives is None
-                        else (
-                            batch_graph["edge_lengths"],
-                            batch_graph["unit_edge_vectors"],
-                        )
+                        else geometry
                     ),
                     [batch_graph["batch_cart_coords"], batch_graph["batch_strains"]],
                     grad_outputs=energy_derivatives,
@@ -270,10 +270,7 @@ class ForceStressHead(nn.Module):
                     (
                         total_energy.sum()
                         if energy_derivatives is None
-                        else (
-                            batch_graph["edge_lengths"],
-                            batch_graph["unit_edge_vectors"],
-                        )
+                        else geometry
                     ),
                     [batch_graph["batch_cart_coords"]],
                     grad_outputs=energy_derivatives,
