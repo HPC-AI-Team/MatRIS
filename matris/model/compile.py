@@ -17,6 +17,12 @@ warnings.filterwarnings(
     category=UserWarning,
     module=r"torch\._inductor\.compile_fx$",
 )
+warnings.filterwarnings(
+    "ignore",
+    message=r"\s*Online softmax is disabled on the fly since Inductor decides to\s+split the reduction\.",
+    category=UserWarning,
+    module=r"torch\._inductor\.lowering$",
+)
 
 # Fixed process-wide compilation defaults.
 inductor_config.emulate_precision_casts = True
@@ -43,6 +49,8 @@ class _TrainingCore(nn.Module):
             batch_graph, tf32=self.tf32, fast=True, training=True
         )
         geometry = (batch_graph["edge_lengths"], batch_graph["unit_edge_vectors"])
+        if self.model.long_range_layers:
+            geometry = (*geometry, batch_graph["long_range_radial_features"])
         derivatives = None
         if self.compute_force:
             grads = torch.autograd.grad(

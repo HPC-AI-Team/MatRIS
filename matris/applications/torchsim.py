@@ -19,6 +19,8 @@ class MatRISTorchSimModel(ModelInterface):
     computational cell and zero stress; the input state is never modified.
     Missing non-periodic cell vectors are completed internally.
     Isolated atoms retain the model's atomic energy prediction and have zero force.
+    Pass global electronic labels as forward kwargs charge=... and spin=...;
+    spin is multiplicity (2S+1), with 0 representing an unknown state.
     Outputs are detached for simulation; differentiable trajectories are not supported.
     """
 
@@ -123,11 +125,13 @@ class MatRISTorchSimModel(ModelInterface):
                 undirected2directed=u2d.to(self.device),
                 line_graph=line_graph.to(self.device),
                 atom_graph_cutoff=self.cutoff, line_graph_cutoff=line_cutoff,
+                pbc=tuple(periodic[index].tolist()),
             ))
             start += count
         prediction = self.model(
             graphs, task=self.target, mode=self.mode,
             activation_checkpoint=self.activation_checkpoint, tf32=self.tf32,
+            charge=kwargs.get("charge"), spin=kwargs.get("spin"),
         )
         energy = prediction["e"]
         if self.model.is_intensive:

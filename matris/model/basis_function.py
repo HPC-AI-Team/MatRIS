@@ -85,6 +85,25 @@ def SphericalHarmonics(lmax: int, x: torch.Tensor) -> torch.Tensor:
     raise ValueError("lmax <= 3")
 
 
+class LegendreExpansion(nn.Module):
+    """Polynomial angular basis evaluated directly on the direction dot product."""
+
+    def __init__(self, num_angular: int = 7):
+        super().__init__()
+        if num_angular < 1:
+            raise ValueError("num_angular must be positive")
+        self.num_angular = num_angular
+
+    def forward(self, cosine: Tensor) -> Tensor:
+        basis = [torch.ones_like(cosine)]
+        if self.num_angular > 1:
+            basis.append(cosine)
+        for degree in range(2, self.num_angular):
+            basis.append(((2 * degree - 1) * cosine * basis[-1]
+                          - (degree - 1) * basis[-2]) / degree)
+        return torch.stack(basis, dim=-1)
+
+
 class FourierExpansion(nn.Module):
     """
         Fourier expansion for three-body feature.

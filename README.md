@@ -6,6 +6,10 @@ Official PyTorch implementation of **MatRIS** (**Mat**erials **R**epresentation 
 
 ## Update
 
+**Nov 2026**
+
+- New model: **MatRIS OMol25-0**.
+
 **Oct 2026**
 
 - Optimized kernels and `torch.compile` support (**~5× faster** inference).
@@ -19,10 +23,11 @@ Official PyTorch implementation of **MatRIS** (**Mat**erials **R**epresentation 
 
 ## Pretrained Models
 
-We offer seven pretrained models:
+MatRIS supports the following pretrained checkpoints.
 
 | Model key | Checkpoint | Dataset | Target |
 | --- | --- | --- | --- |
+| `matris_omol` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_OMOL0.pth.tar) | OMol25-0 | ef |
 | `matris_10m_omat` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_OMAT.pth.tar) | OMat24 | efs |
 | `matris_10m_oam` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_OAM.pth.tar) | OMat24 → sAlex + MPtrj | efsm |
 | `matris_10m_mp` | [Download](https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_MP.pth.tar) | MPtrj | efsm |

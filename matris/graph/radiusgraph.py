@@ -28,6 +28,9 @@ class RadiusGraph:
         line_graph_cutoff: float,
         directed2undirected: Tensor,
         undirected2directed: Tensor,
+        pbc: tuple[bool, bool, bool] | None = None,
+        charge: int | float | None = None,
+        spin: int | float | None = None,
     ):
         """Initialize a RadiusGraph object representing a material graph.
         
@@ -70,6 +73,9 @@ class RadiusGraph:
             undirected2directed (Tensor): Mapping from each undirected edge index 
                 to one of its directed edge indices.
                 Shape: [n_undirected_edges]
+
+            charge: Optional total structure charge; enabled models use 0 if missing.
+            spin: Optional spin multiplicity (2S+1); 0 or missing means unknown.
         """
         super().__init__()
         self.graph_id = graph_id
@@ -86,6 +92,10 @@ class RadiusGraph:
         self.atom_graph_cutoff = atom_graph_cutoff
         self.directed2undirected = directed2undirected
         self.undirected2directed = undirected2directed
+        self.pbc = None if pbc is None else tuple(bool(x) for x in pbc)
+        # These are structure-level labels, not atomic partial charges/moments.
+        self.charge = charge.item() if hasattr(charge, "item") else charge
+        self.spin = spin.item() if hasattr(spin, "item") else spin
         
         assert len(directed2undirected) == 2 * len(undirected2directed), (
             f"Number of directed indices ({len(directed2undirected)}) != "
@@ -108,6 +118,9 @@ class RadiusGraph:
             line_graph_cutoff=self.line_graph_cutoff,
             directed2undirected=self.directed2undirected.to(device),
             undirected2directed=self.undirected2directed.to(device),
+            pbc=getattr(self, "pbc", None),
+            charge=getattr(self, "charge", None),
+            spin=getattr(self, "spin", None),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -125,6 +138,9 @@ class RadiusGraph:
             "line_graph_cutoff": self.line_graph_cutoff,
             "directed2undirected": self.directed2undirected,
             "undirected2directed": self.undirected2directed,
+            "pbc": getattr(self, "pbc", None),
+            "charge": getattr(self, "charge", None),
+            "spin": getattr(self, "spin", None),
         }
 
     def save(self, fname: str | None = None, save_dir: str = ".") -> str:

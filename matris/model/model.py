@@ -9,9 +9,13 @@ from collections.abc import Sequence
 from ..graph import RadiusGraph, GraphConverter
 from .reference_energy import AtomRef
 from .processgraph import process_graphs
-from .feature_embed import AtomTypeEmbedding, EdgeBasisEmbedding, ThreebodyEmbedding
+from .feature_embed import (
+    AtomTypeEmbedding, ChargeSpinEmbedding, EdgeBasisEmbedding, ThreebodyEmbedding,
+    prepare_electronic_input,
+)
 from .functions import get_normalization
 from .interaction_block import Interaction_Block
+from .long_range import InvariantLongRange
 from .readout import (
     EnergyHead,
     MagmomHead,
@@ -48,6 +52,9 @@ class MatRIS(nn.Module):
         is_intensive: bool = True,
         is_conservation: bool = True,
         reference_energy: str | None = None,
+        smooth_attention: bool = False,
+        use_charge_spin_embedding: bool = False,
+        use_long_range: bool = False,
     ):
         """
         Args:
@@ -62,7 +69,7 @@ class MatRIS(nn.Module):
             distance_expansion (str):  The function of pairwise basis.
                 Can be "Bessel" or "Gaussian".
             three_body_expansion (str): The function of three body basis.
-                Can be "Fourier(fourier)" or "Spherical Harmonics(sh)".
+                Can be "fourier", "sh", or "legendre".
             num_radial (int): number of radial basis used in Bessel and Gaussian basis.
             num_angular (int): number of three_body basis used in Fourier basis.
             max_l (int): Maximum l value for Spherical Harmonics basis (SH).
@@ -85,6 +92,9 @@ class MatRIS(nn.Module):
             is_conservation (bool): whether use conservate force and stress.
             reference_energy (str): refernece energy of 'str'(eg. MPtrj, OMat..) dataset(Caculated by linear regression).
                 more details can be found at reference_energy.py.
+            smooth_attention (bool): Smoothly weight attention near the cutoff.
+            use_charge_spin_embedding (bool): Condition on system charge and spin multiplicity.
+            use_long_range (bool): Enable virtual-node long-range layers.
         """
 
         super().__init__()
@@ -92,6 +102,9 @@ class MatRIS(nn.Module):
         self.config = {
             k: v for k, v in locals().items() if k not in ["self", "__class__"]
         }
+        for option in ("smooth_attention", "use_charge_spin_embedding", "use_long_range"):
+            if not self.config[option]:
+                del self.config[option]
 
         self._compiled_forward = None
         self._compiled_training_forward = {}
@@ -119,6 +132,7 @@ class MatRIS(nn.Module):
             envelope_exponent=envelope_exponent,
             learnable=learnable_basis,
             distance_expansion=distance_expansion,
+            smooth_attention=smooth_attention,
         )
         self.three_body_embedding = ThreebodyEmbedding(
             num_angular=num_angular,  # Fourier
@@ -143,10 +157,18 @@ class MatRIS(nn.Module):
                 mlp_type=graph_conv_mlp,
                 norm_type=norm_type,
                 activation_type=activation_type,
+                smooth_attention=smooth_attention,
             )
             for _ in range(num_layers)
         ]
         self.interaction_block = nn.ModuleList(interaction_block)
+        self.long_range_layers = nn.ModuleList(
+            InvariantLongRange(node_feat_dim)
+            for _ in range(num_layers)
+        ) if use_long_range else nn.ModuleList()
+        self.charge_spin_embedding = (
+            ChargeSpinEmbedding(node_feat_dim) if use_charge_spin_embedding else None
+        )
 
         # ====== Readout layers ========
         self.readout_norm = get_normalization(norm_type, dim=node_feat_dim)
@@ -186,6 +208,8 @@ class MatRIS(nn.Module):
         *,
         activation_checkpoint: bool = False,
         tf32: bool = False,
+        charge: int | Sequence[int] | Tensor | None = None,
+        spin: int | Sequence[int] | Tensor | None = None,
     ) -> dict[str, Tensor]:
         
         if mode not in ("fast", "torch"):
@@ -229,9 +253,22 @@ class MatRIS(nn.Module):
                 mode=mode,
                 activation_checkpoint=False,
                 tf32=tf32,
+                charge=charge,
+                spin=spin,
                 use_reentrant=False,
             )
+        if self.long_range_layers and any(
+            getattr(g, "pbc", None) is None or any(g.pbc) for g in graphs
+        ):
+            raise ValueError("Long-range models require nonperiodic graphs with explicit pbc=False")
         batch_graph = process_graphs(graphs, compute_stress="s" in task, fast=fast)
+        if self.charge_spin_embedding is not None:
+            batch_graph["charge"] = prepare_electronic_input(charge, graphs, "charge", device)
+            batch_graph["spin"] = prepare_electronic_input(spin, graphs, "spin", device)
+        if self.long_range_layers:
+            batch_graph.update(self.long_range_layers[0].prepare_geometry(
+                batch_graph["batch_cart_coords"], batch_graph["atom_segment"], len(graphs)
+            ))
         geometry_grads = None
         if fast and training:
             signature = (
@@ -303,10 +340,17 @@ class MatRIS(nn.Module):
 
         prediction["atoms_per_graph"] = atoms_per_graph_tensor
 
-        ref_energy = (
-            0 if self.reference_energy is None else self.reference_energy(graphs)
-        )
-        prediction["e"] += ref_energy
+        high_precision = self.config["reference_energy"] == "omol"
+        ref_energy = 0
+        if self.reference_energy is not None:
+            ref_energy = (
+                self.reference_energy(graphs, high_precision=True)
+                if high_precision else self.reference_energy(graphs)
+            )
+        if high_precision:
+            prediction["e"] = prediction["e"] + ref_energy
+        else:
+            prediction["e"] += ref_energy
         prediction["ref_energy"] = ref_energy
         return prediction
 
@@ -326,6 +370,9 @@ class MatRIS(nn.Module):
         node_feat = self.atom_embedding(
             batch_graph["atomic_numbers"] - 1
         )  # atom type feature init (use 0 for 'H')
+        if self.charge_spin_embedding is not None:
+            system_feat = self.charge_spin_embedding(batch_graph.get("charge"), batch_graph.get("spin"))
+            node_feat = node_feat + system_feat[batch_graph["atom_segment"]]
         edge_feat, smooth_weight = self.edge_embedding(
             graphs=batch_graph, fast=fast
         )  # pairwise feature init
@@ -335,7 +382,15 @@ class MatRIS(nn.Module):
         )
 
         # ======== Interaction Block =======
-        for mp_layer in self.interaction_block:
+        for index, mp_layer in enumerate(self.interaction_block):
+            if self.long_range_layers:
+                generator = self.long_range_layers[index]
+                if activation_checkpoint:
+                    generator = partial(checkpoint, generator, use_reentrant=False)
+                node_feat = node_feat + generator(
+                    node_feat, batch_graph["batch_cart_coords"], batch_graph["atom_segment"],
+                    batch_graph["volumes"].shape[0], batch_graph,
+                )
             block = (
                 partial(checkpoint, mp_layer, use_reentrant=False)
                 if activation_checkpoint else mp_layer
@@ -375,6 +430,29 @@ class MatRIS(nn.Module):
             if not torch.equal(reference, legacy_reference):
                 raise ValueError("Checkpoint contains conflicting reference energy weights")
         config = dict(dct["config"])
+        if config.pop("diffusion_pretraining", False):
+            raise ValueError("Coordinate diffusion checkpoints are not supported")
+        # Autocast during line-graph training does not change inference weights.
+        config.pop("line_graph_amp", None)
+        # Translate the original OMol export to the current model configuration.
+        if config.pop("smooth", False):
+            config["smooth_attention"] = True
+        charge = config.pop("use_charge_embedding", False)
+        spin = config.pop("use_spin_embedding", False)
+        if charge != spin:
+            raise ValueError("Legacy checkpoints must enable charge and spin embeddings together")
+        if charge:
+            config["use_charge_spin_embedding"] = True
+        long_range_settings = (
+            ("long_range_dim", InvariantLongRange.hidden_dim),
+            ("long_range_centers", InvariantLongRange.num_centers),
+            ("long_range_length", InvariantLongRange.length_scale),
+        )
+        for name, expected in long_range_settings:
+            value = config.pop(name, expected)
+            if config.get("use_long_range") and value != expected:
+                raise ValueError(f"Legacy long-range checkpoint requires {name}={expected}, got {value}")
+
         reference_name = config.pop("reference_energy", None)
         model = cls(**config)
         reference_weight = state_dict.get("reference_energy.fc.weight")
@@ -421,8 +499,10 @@ class MatRIS(nn.Module):
                 "matris_4m_matpes_pbev1": "MatRIS_4M_MatPES_PBEv1.pth.tar",
                 "matris_4m_matpes_r2scanv2": "MatRIS_4M_MatPES_r2SCANv2.pth.tar",
                 "matris_4m_matpes_pbev2": "MatRIS_4M_MatPES_PBEv2.pth.tar",
+                "matris_omol": "MatRIS_OMOL0.pth.tar",
             }
             DOWNLOAD_URLS = {
+                "matris_omol": "https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_OMOL0.pth.tar",
                 "matris_10m_omat": "https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_OMAT.pth.tar",
                 "matris_10m_oam": "https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_OAM.pth.tar",
                 "matris_10m_mp": "https://github.com/HPC-AI-Team/MatRIS/releases/download/v1.0.0/MatRIS_10M_MP.pth.tar",

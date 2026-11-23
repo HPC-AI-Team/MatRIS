@@ -21,6 +21,24 @@ from .functions import (
 )
 
 
+def _cutoff_attention(source, target, values, cutoff, source_index, target_index, num_nodes):
+    """Weight probabilities and values by the envelope, with one zero-message slot."""
+    cutoff = cutoff[:, None]
+    values = values * cutoff
+    outputs = []
+    for logits, index in ((source, source_index), (target, target_index)):
+        ids = index[:, None].expand_as(logits)
+        maximum = logits.new_zeros((num_nodes, logits.shape[1])).scatter_reduce(
+            0, ids, logits, reduce="amax", include_self=True,
+        ).detach()
+        numerator = cutoff * (logits - maximum[index]).exp()
+        denominator = (-maximum).exp().index_add(0, index, numerator)
+        outputs.append(values.new_zeros((num_nodes, values.shape[1])).index_add(
+            0, index, (numerator / denominator[index]) * values,
+        ))
+    return tuple(outputs)
+
+
 class Graph_Attention_Layer(nn.Module):
     def __init__(
         self,
@@ -32,9 +50,11 @@ class Graph_Attention_Layer(nn.Module):
         mlp_type: str = "GateMLP",  # MLP, GateMLP
         activation_type: str = "silu",
         norm_type: str = "layer",
+        smooth_attention: bool = False,
     ):
         super().__init__()
 
+        self.score_norm = nn.LayerNorm(edge_feat_dim) if smooth_attention else None
         self.source_weight_linear = nn.Linear(
             in_features=edge_feat_dim, out_features=edge_feat_dim, bias=False
         )
@@ -100,7 +120,8 @@ class Graph_Attention_Layer(nn.Module):
         tf32: bool = False,
         *,
         fast: bool = False,
-        training: bool = True
+        training: bool = True,
+        cutoff: Tensor | None = None,
     ):
         source_node_index = graph["source_index"]
         target_node_index = graph["target_index"]
@@ -145,8 +166,9 @@ class Graph_Attention_Layer(nn.Module):
                 )
 
         # ======= update atom feature =======
+        score_feat = edge_feat_0 if self.score_norm is None else self.score_norm(edge_feat_0)
         source_alpha_0 = linear(
-            edge_feat_0,
+            score_feat,
             self.source_weight_linear.weight,
             self.source_weight_linear.bias,
             tf32=tf32,
@@ -154,7 +176,7 @@ class Graph_Attention_Layer(nn.Module):
             training=training,
         )
         target_alpha_0 = linear(
-            edge_feat_0,
+            score_feat,
             self.target_weight_linear.weight,
             self.target_weight_linear.bias,
             tf32=tf32,
@@ -165,7 +187,7 @@ class Graph_Attention_Layer(nn.Module):
         # Softmax
         num_segment = node_feat.shape[0]
         attention_with_residual = None
-        if directed2undirected is None:
+        if cutoff is None and directed2undirected is None:
             attention_with_residual = fused_attention_with_residual(
                 source_alpha_0,
                 target_alpha_0,
@@ -179,7 +201,12 @@ class Graph_Attention_Layer(nn.Module):
                 fast=fast,
                 training=training,
             )
-        if attention_with_residual is None:
+        if cutoff is not None:
+            attention = _cutoff_attention(
+                source_alpha_0, target_alpha_0, attn_edge_feat, cutoff,
+                source_node_index, target_node_index, num_segment,
+            )
+        elif attention_with_residual is None:
             attention = fused_attention(
                 source_alpha_0,
                 target_alpha_0,
@@ -521,6 +548,7 @@ class Interaction_Block(nn.Module):
         mlp_type: str = "GateMLP",
         norm_type: str = "layer",
         activation_type: str = "silu",
+        smooth_attention: bool = False,
     ):
         """
         Initialize the Interaction Block.
@@ -535,6 +563,7 @@ class Interaction_Block(nn.Module):
         """
         super().__init__()
 
+        self.smooth_attention = smooth_attention
         self.attn_block_atom_graph = Graph_Attention_Layer(
             node_feat_dim=node_feat_dim,
             edge_feat_dim=edge_feat_dim,
@@ -543,6 +572,7 @@ class Interaction_Block(nn.Module):
             mlp_type=mlp_type,
             norm_type=norm_type,
             activation_type=activation_type,
+            smooth_attention=smooth_attention,
         )
 
         self.attn_block_line_graph = Graph_Attention_Layer(
@@ -553,6 +583,7 @@ class Interaction_Block(nn.Module):
             mlp_type=mlp_type,
             norm_type=norm_type,
             activation_type=activation_type,
+            smooth_attention=smooth_attention,
         )
 
         self.refine_block_atom_graph = Refinement(
@@ -612,6 +643,12 @@ class Interaction_Block(nn.Module):
         """
         # Empty angles have zero messages, but retain learned node updates.
         line_fast = fast and threebody_feat.shape[0] != 0
+        atom_cutoff = line_cutoff = None
+        if self.smooth_attention:
+            atom_cutoff = smooth_weight["atom cutoff"][batch_graph["directed2undirected"]]
+            line_graph = batch_graph["line_graph_dict"]
+            bonds = smooth_weight["line cutoff"]
+            line_cutoff = bonds[line_graph["source_index"]] * bonds[line_graph["target_index"]]
         attn_edge_feat, attn_threebody_feat = self.attn_block_line_graph(
             node_feat=edge_feat,
             edge_feat=threebody_feat,
@@ -619,6 +656,7 @@ class Interaction_Block(nn.Module):
             tf32=tf32,
             fast=line_fast,
             training=training,
+            cutoff=line_cutoff,
         )
 
         # Process atom graph with attention
@@ -630,6 +668,7 @@ class Interaction_Block(nn.Module):
             tf32=tf32,
             fast=fast,
             training=training,
+            cutoff=atom_cutoff,
         )
 
         update_edge_feat, update_threebody_feat = self.refine_block_line_graph(

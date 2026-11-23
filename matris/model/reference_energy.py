@@ -31,7 +31,7 @@ class AtomRef(nn.Module):
         for param in self.parameters():
             param.requires_grad = False
         
-    def forward(self, graphs: list[RadiusGraph]):
+    def forward(self, graphs: list[RadiusGraph], *, high_precision: bool = False):
         """Get the energy of a list of CrystalGraphs.
 
         Args:
@@ -41,15 +41,23 @@ class AtomRef(nn.Module):
             energy (tensor)
         """
         composition_feas = []
+        dtype = torch.float64 if high_precision else self.fc.weight.dtype
         for graph in graphs:
             composition_fea = torch.bincount(
                 graph.atomic_number - 1, minlength=self.max_num_elements
-            ).to(self.fc.weight.dtype)
-            if self.is_intensive:
+            ).to(dtype)
+            if self.is_intensive and not high_precision:
                 n_atom = graph.atomic_number.shape[0]
                 composition_fea = composition_fea / n_atom
             composition_feas.append(composition_fea)
         composition_feas = torch.stack(composition_feas, dim=0)
+        if high_precision:
+            ref_energy = nn.functional.linear(composition_feas, self.fc.weight.to(dtype)).view(-1)
+            if self.is_intensive:
+                ref_energy = ref_energy / ref_energy.new_tensor(
+                    [graph.atomic_number.shape[0] for graph in graphs]
+                )
+            return ref_energy
          
         ref_energy = self.fc(composition_feas).view(-1) 
         return ref_energy
