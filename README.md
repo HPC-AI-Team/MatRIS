@@ -69,7 +69,8 @@ magmoms = atoms.get_magnetic_moments()  # muB
 Load a local `MatRIS_OMol.pth.tar` with `task="ef"` for nonperiodic molecules.
 The checkpoint supplies the model architecture.
 Set `atoms.info["charge"]` to the total charge and `atoms.info["spin"]` to the
-spin multiplicity (2S+1).
+spin multiplicity (2S+1). Missing or `None` values default to charge 0 and
+spin multiplicity 1.
 
 ```python
 from ase.build import molecule

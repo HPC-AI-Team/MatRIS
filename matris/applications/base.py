@@ -9,12 +9,17 @@ from ase.optimize import BFGS, FIRE, LBFGS, BFGSLineSearch, LBFGSLineSearch, MDM
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from ..model.model import MatRIS
-from ..graph.converter import electronic_state_metadata
 
 OPTIMIZERS = {
     cls.__name__: cls
     for cls in (BFGS, BFGSLineSearch, FIRE, LBFGS, LBFGSLineSearch, MDMin)
 }
+
+
+def _electronic_state(atoms: Atoms) -> dict:
+    charge = atoms.info.get("charge")
+    spin = atoms.info.get("spin")
+    return {"charge": 0 if charge is None else charge, "spin": 1 if spin is None else spin}
 
 
 class MatRISCalculator(Calculator):
@@ -66,13 +71,9 @@ class MatRISCalculator(Calculator):
     def check_state(self, atoms: Atoms, tol: float = 1e-15) -> list:
         changes = super().check_state(atoms, tol=tol)
         if self.atoms is not None and self.model.charge_spin_embedding is not None:
-            old = electronic_state_metadata(self.atoms.info)
-            new = electronic_state_metadata(atoms.info)
-            for name in ("charge", "spin"):
-                previous = 0 if old[name] is None else old[name]
-                current = 0 if new[name] is None else new[name]
-                if previous != current:
-                    changes.append(name)
+            old = _electronic_state(self.atoms)
+            new = _electronic_state(atoms)
+            changes.extend(name for name in new if old[name] != new[name])
         return changes
 
     def calculate(
@@ -98,6 +99,9 @@ class MatRISCalculator(Calculator):
             atoms.set_cell(cell, scale_atoms=False)
 
         structure = AseAtomsAdaptor.get_structure(atoms)
+        electronic_state = (
+            _electronic_state(atoms) if self.model.charge_spin_embedding is not None else {}
+        )
         graph = self.model.graph_converter(
             structure,
             atomic_numbers=atoms.get_atomic_numbers(),
@@ -105,7 +109,7 @@ class MatRISCalculator(Calculator):
             lattice_matrix=atoms.cell.array,
             cart_coords=atoms.get_positions(),
             mode=self.mode,
-            **electronic_state_metadata(atoms.info),
+            **electronic_state,
         ).to(self.device)
         prediction = self.model(
             [graph],

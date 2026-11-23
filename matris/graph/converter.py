@@ -175,13 +175,14 @@ class GraphConverter(nn.Module):
                 line_cutoff=self.line_graph_cutoff,
             )
         atom_graph, directed2undirected, undirected2directed, line_graph = tensors
-        state = electronic_state_metadata(getattr(structure, "properties", None))
-        if charge is None:
-            charge = state["charge"]
+        if charge is None or spin is None:
+            state = electronic_state_metadata(getattr(structure, "properties", None))
             if charge is None:
-                charge = getattr(structure, "charge", None)
-        if spin is None:
-            spin = state["spin"]
+                charge = state["charge"]
+                if charge is None:
+                    charge = getattr(structure, "charge", None)
+            if spin is None:
+                spin = state["spin"]
         return RadiusGraph(
             atomic_number=atomic_number,
             atom_frac_coord=atom_frac_coord,
