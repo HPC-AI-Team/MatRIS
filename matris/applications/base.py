@@ -16,12 +16,6 @@ OPTIMIZERS = {
 }
 
 
-def _electronic_state(atoms: Atoms) -> dict:
-    charge = atoms.info.get("charge")
-    spin = atoms.info.get("spin")
-    return {"charge": 0 if charge is None else charge, "spin": 1 if spin is None else spin}
-
-
 class MatRISCalculator(Calculator):
     """ASE calculator returning total energies, forces, and stress in ASE units."""
 
@@ -71,9 +65,13 @@ class MatRISCalculator(Calculator):
     def check_state(self, atoms: Atoms, tol: float = 1e-15) -> list:
         changes = super().check_state(atoms, tol=tol)
         if self.atoms is not None and self.model.charge_spin_embedding is not None:
-            old = _electronic_state(self.atoms)
-            new = _electronic_state(atoms)
-            changes.extend(name for name in new if old[name] != new[name])
+            for name, default in (("charge", 0), ("spin", 1)):
+                old = self.atoms.info.get(name)
+                new = atoms.info.get(name)
+                old = default if old is None else old
+                new = default if new is None else new
+                if old != new:
+                    changes.append(name)
         return changes
 
     def calculate(
@@ -99,9 +97,12 @@ class MatRISCalculator(Calculator):
             atoms.set_cell(cell, scale_atoms=False)
 
         structure = AseAtomsAdaptor.get_structure(atoms)
-        electronic_state = (
-            _electronic_state(atoms) if self.model.charge_spin_embedding is not None else {}
-        )
+        charge = spin = None
+        if self.model.charge_spin_embedding is not None:
+            charge = atoms.info.get("charge")
+            spin = atoms.info.get("spin")
+            charge = 0 if charge is None else charge
+            spin = 1 if spin is None else spin
         graph = self.model.graph_converter(
             structure,
             atomic_numbers=atoms.get_atomic_numbers(),
@@ -109,7 +110,8 @@ class MatRISCalculator(Calculator):
             lattice_matrix=atoms.cell.array,
             cart_coords=atoms.get_positions(),
             mode=self.mode,
-            **electronic_state,
+            charge=charge,
+            spin=spin,
         ).to(self.device)
         prediction = self.model(
             [graph],
